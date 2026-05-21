@@ -1,0 +1,36 @@
+# Entorno virtual Python
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Variables de entorno (contiene claves secretas)
+.env
+
+# Base de datos SQLite (se genera en producción)
+backend/database/gestion_compras.db
+
+# Archivos de carga y exportaciones temporales
+uploads/
+exports/
+instance/
+
+# Logs
+*.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Archivos temporales
+temp_search.txt
+*.zip

@@ -1,0 +1,29 @@
+/* Estilos para upload de archivos */
+.upload-area {
+    border: 2px dashed #ddd;
+    border-radius: var(--border-radius);
+    padding: 40px;
+    text-align: center;
+    background: #f9f9f9;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.upload-area:hover {
+    border-color: var(--primary-color);
+    background: rgba(198, 34, 0, 0.02);
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.upload-area p {
+    margin: 8px 0;
+    color: var(--text-secondary);
+}
+
+.upload-area strong {
+    color: var(--text-primary);
+}

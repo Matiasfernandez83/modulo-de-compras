@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sistema de Gestión de Compras</title>
+    <link rel="stylesheet" href="css/variables.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/upload.css" />
+    <link rel="stylesheet" href="css/dashboard.css" />
+    <link rel="stylesheet" href="css/notifications.css" />
+    <link rel="stylesheet" href="css/export.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <!-- Pantalla de Login -->
+    <div id="login-screen" class="login-container">
+      <div class="login-box">
+        <div class="login-header">
+          <h1>Sistema de Gestión de Compras</h1>
+          <p>Ingrese sus credenciales</p>
+        </div>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="username">Usuario</label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              required
+              autocomplete="username"
+            />
+          </div>
+          <div class="form-group">
+            <label for="password">Contraseña</label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              autocomplete="current-password"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            Ingresar
+          </button>
+        </form>
+        <div id="login-error" class="error-message" style="display: none"></div>
+      </div>
+    </div>
+
+    <!-- Aplicación Principal -->
+    <div id="main-app" style="display: none">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <h1>Gestión de Compras</h1>
+        </div>
+        <div class="header-center">
+          <span id="current-module-title">Dashboard</span>
+        </div>
+        <div class="header-right">
+          <div id="session-timer" class="session-timer">
+            <span class="timer-icon">🕐</span>
+            <span id="timer-display">00:00:00</span>
+          </div>
+          <div class="user-info">
+            <span id="user-name">Usuario</span>
+            <span class="user-role" id="user-role">Rol</span>
+          </div>
+          <button id="logout-btn" class="btn btn-secondary btn-sm">
+            Salir
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Container -->
+      <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="app-sidebar">
+          <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-module="dashboard">
+              <span class="nav-icon">📊</span>
+              <span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-module="proveedores">
+              <span class="nav-icon">🏢</span>
+              <span>Proveedores</span>
+            </a>
+            <a href="#" class="nav-item" data-module="articulos">
+              <span class="nav-icon">📦</span>
+              <span>Artículos</span>
+            </a>
+            <a href="#" class="nav-item" data-module="listas-precios">
+              <span class="nav-icon">💰</span>
+              <span>Listas de Precios</span>
+            </a>
+            <a href="#" class="nav-item" data-module="planificacion">
+              <span class="nav-icon">📋</span>
+              <span>Planificación</span>
+            </a>
+            <a href="#" class="nav-item" data-module="competencia">
+              <span class="nav-icon">⚖️</span>
+              <span>Competencia</span>
+            </a>
+            <a href="#" class="nav-item" data-module="ordenes-compra">
+              <span class="nav-icon">📄</span>
+              <span>Órdenes de Compra</span>
+            </a>
+            <div class="nav-divider"></div>
+            <a href="#" class="nav-item" data-module="usuarios">
+              <span class="nav-icon">👥</span>
+              <span>Usuarios</span>
+            </a>
+          </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="app-content">
+          <div id="content-area">
+            <!-- Contenido dinámico se carga aquí -->
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none">
+      <div class="spinner"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="js/main.js?v=3"></script>
+  </body>
+</html>

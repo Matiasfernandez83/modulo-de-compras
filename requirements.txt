@@ -1,0 +1,11 @@
+Flask
+Flask-SQLAlchemy
+Flask-Bcrypt
+Flask-CORS
+python-dotenv
+Werkzeug
+openpyxl
+pandas
+fuzzywuzzy
+python-Levenshtein
+gunicorn
