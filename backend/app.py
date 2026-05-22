@@ -1,7 +1,15 @@
+import sys
+import os
+
+# Garantizar que el directorio 'backend' esté en sys.path
+# Esto es necesario para que gunicorn encuentre todos los módulos en Render
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from flask import Flask, send_from_directory
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
-import os
 
 # Inicializar extensiones
 bcrypt = Bcrypt()
