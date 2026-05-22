@@ -3,12 +3,10 @@ services:
     name: modulo-de-compras
     runtime: python
     rootDir: backend
-    buildCommand: pip install -r ../requirements.txt && python database/db.py
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    buildCommand: pip install -r ../requirements.txt && python -c "import sys; sys.path.insert(0, '.'); from database.db import init_database; init_database()"
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: FLASK_ENV
         value: production
-      - key: SESSION_COOKIE_SECURE
-        value: "True"
