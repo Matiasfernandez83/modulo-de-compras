@@ -1,4 +1,8 @@
-import pdfplumber
+try:
+    import pdfplumber
+    PDFPLUMBER_OK = True
+except ImportError:
+    PDFPLUMBER_OK = False
 import re
 from pathlib import Path
 
@@ -11,6 +15,8 @@ def parse_pdf_lista_precios(file_path):
         dict: Diccionario con success, items/error, y total
     """
     try:
+        if not PDFPLUMBER_OK:
+            return {'success': False, 'error': 'pdfplumber no está instalado en el servidor'}
         if not Path(file_path).exists():
             return {
                 'success': False,

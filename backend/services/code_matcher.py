@@ -1,5 +1,8 @@
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+try:
+    from fuzzywuzzy import fuzz, process
+    FUZZY_OK = True
+except ImportError:
+    FUZZY_OK = False
 import sqlite3
 import os
 
@@ -64,7 +67,7 @@ def match_codigo_to_articulo(codigo_proveedor, codigo_interno=None, nombre_artic
             }
     
     # 3. Fuzzy matching por nombre
-    if nombre_articulo:
+    if nombre_articulo and FUZZY_OK:
         cursor.execute("SELECT id, codigo_interno, nombre FROM articulos")
         articulos = cursor.fetchall()
         
