@@ -9,3 +9,4 @@ pandas
 fuzzywuzzy
 python-Levenshtein
 gunicorn
+pdfplumber
