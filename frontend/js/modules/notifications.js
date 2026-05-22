@@ -153,3 +153,5 @@ export function stopPolling() {
 window.notificationsModule = {
     markAsRead
 };
+
+

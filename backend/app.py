@@ -20,7 +20,15 @@ def create_app():
     
     # Inicializar extensiones
     bcrypt.init_app(app)
-    CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'], supports_credentials=True)
+    # Configurar CORS - acepta localhost en dev y la URL de Render en producción
+    allowed_origins = [
+        'http://localhost:3000', 'http://127.0.0.1:3000',
+        'http://localhost:5500', 'http://127.0.0.1:5500',
+    ]
+    render_url = os.getenv('RENDER_EXTERNAL_URL')
+    if render_url:
+        allowed_origins.append(render_url)
+    CORS(app, origins=allowed_origins, supports_credentials=True)
     
     # Crear directorios necesarios
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -73,8 +81,18 @@ def create_app():
     
     return app
 
+# Exponer 'app' a nivel de módulo para gunicorn (Render)
+app = create_app()
+
+# Inicializar DB al primer arranque
+with app.app_context():
+    try:
+        from database.db import init_database
+        init_database()
+    except Exception as e:
+        print(f'DB ya inicializada o error: {e}')
+
 if __name__ == '__main__':
-    app = create_app()
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 3000)), debug=os.getenv('FLASK_ENV') != 'production')
 
 

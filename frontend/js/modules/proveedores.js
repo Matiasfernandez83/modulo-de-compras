@@ -16,7 +16,7 @@ function renderProveedoresView() {
             <div class="card-header">
                 <h2 class="card-title">Proveedores</h2>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <a href="http://localhost:3000/api/proveedores/template" 
+                    <a href="${window.location.origin}/api/proveedores/template" 
                        class="btn btn-secondary" download title="Descargar planilla Excel para carga masiva">
                         📥 Descargar Template Excel
                     </a>
@@ -58,7 +58,7 @@ function renderProveedoresView() {
                         </button>
                     </div>
                     <div style="margin-top:12px; text-align:center">
-                        <a href="http://localhost:3000/api/proveedores/template" download class="btn btn-secondary btn-sm">
+                        <a href="${window.location.origin}/api/proveedores/template" download class="btn btn-secondary btn-sm">
                             📥 Descargar Template
                         </a>
                     </div>
@@ -341,7 +341,7 @@ async function saveProveedor() {
 
 async function exportar() {
     try {
-        const url = 'http://localhost:3000/api/export/proveedores';
+        const url = '' + window.location.origin + '/api/export/proveedores';
         const a = document.createElement('a');
         a.href = url;
         a.download = 'proveedores.xlsx';
@@ -399,7 +399,7 @@ async function handleFile(file) {
     formData.append('file', file);
 
     try {
-        const response = await fetch('http://localhost:3000/api/upload/proveedores', {
+        const response = await fetch(`${window.location.origin}/api/upload/proveedores`, {
             method: 'POST',
             credentials: 'include',
             body: formData
@@ -439,3 +439,5 @@ window.proveedoresModule = {
     showUploadModal,
     closeUploadModal,
 };
+
+

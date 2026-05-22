@@ -1,5 +1,7 @@
-// API Configuration
-const API_BASE_URL = 'http://localhost:3000/api';
+// API Configuration - detecta automáticamente si está en localhost o en producción (Render)
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:3000/api'
+    : `${window.location.origin}/api`;
 
 // Cliente API - usa cookies de sesión (sin tokens)
 export const API = {
@@ -153,3 +155,4 @@ export const UsuariosAPI = {
     getSesiones: (id) => API.get(`/usuarios/${id}/sesiones`),
     getTiempoUso: (id) => API.get(`/usuarios/${id}/tiempo-uso`)
 };
+

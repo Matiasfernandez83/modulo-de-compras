@@ -175,7 +175,7 @@ async function handleNuevaLista(e) {
         if (archivo) {
             const fd = new FormData();
             fd.append('file', archivo);
-            await fetch(`http://localhost:3000/api/upload/lista-precios/${lista.id}`, {
+            await fetch(`' + window.location.origin + '/api/upload/lista-precios/${lista.id}`, {
                 method: 'POST', credentials: 'include', body: fd
             });
         }
@@ -342,7 +342,9 @@ async function verHistorialArticulo(articuloId, nombreArticulo, listaActualId) {
 
 async function exportLista(listaId) {
     const a = document.createElement('a');
-    a.href = `http://localhost:3000/api/export/lista-precios/${listaId}`;
+    a.href = `' + window.location.origin + '/api/export/lista-precios/${listaId}`;
     a.download = `lista_${listaId}.xlsx`;
     a.click();
 }
+
+

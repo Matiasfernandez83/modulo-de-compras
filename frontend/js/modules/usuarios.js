@@ -462,3 +462,5 @@ window.usuariosModule = {
     viewUsuario,
     closeDetailModal
 };
+
+

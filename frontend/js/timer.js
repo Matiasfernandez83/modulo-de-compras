@@ -44,3 +44,4 @@ export function getSessionDuration() {
     if (!startTime) return 0;
     return Math.floor((Date.now() - startTime) / 60000); // en minutos
 }
+

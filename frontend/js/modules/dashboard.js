@@ -297,3 +297,5 @@ async function loadRecentActivity() {
         console.error('Error loading recent activity:', error);
     }
 }
+
+

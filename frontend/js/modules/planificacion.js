@@ -18,7 +18,7 @@ function renderPlanificacionView() {
             <div class="card-header">
                 <h2 class="card-title">Planificación de Compras</h2>
                 <div style="display:flex; gap:8px; flex-wrap:wrap">
-                    <a href="http://localhost:3000/api/planificacion/template"
+                    <a href="${window.location.origin}/api/planificacion/template"
                        class="btn btn-secondary" download title="Descargar planilla Excel">
                         📥 Descargar Template Excel
                     </a>
@@ -75,7 +75,7 @@ function renderPlanificacionView() {
                         </button>
                     </div>
                     <div style="margin-top:12px; text-align:center">
-                        <a href="http://localhost:3000/api/planificacion/template" download class="btn btn-secondary btn-sm">
+                        <a href="${window.location.origin}/api/planificacion/template" download class="btn btn-secondary btn-sm">
                             📥 Descargar Template
                         </a>
                     </div>
@@ -384,7 +384,7 @@ async function handlePlanFile(file) {
     fd.append('file', file);
 
     try {
-        const res = await fetch(`http://localhost:3000/api/planificacion/${currentPlanId}/items/bulk`, {
+        const res = await fetch(`' + window.location.origin + '/api/planificacion/${currentPlanId}/items/bulk`, {
             method: 'POST', credentials: 'include', body: fd
         });
         const data = await res.json();
@@ -430,3 +430,5 @@ window.planificacionModule = {
     showImportModal,
     closeImportModal,
 };
+
+

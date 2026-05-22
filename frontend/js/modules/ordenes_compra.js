@@ -544,3 +544,5 @@ window.ordenesCompraModule = {
     closeDetailModal,
     exportOrden
 };
+
+

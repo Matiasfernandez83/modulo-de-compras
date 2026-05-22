@@ -601,3 +601,5 @@ window.competenciaModule = {
     exportCompetencia,
     generarOrdenCompra
 };
+
+

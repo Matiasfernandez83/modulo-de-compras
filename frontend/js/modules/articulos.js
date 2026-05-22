@@ -18,7 +18,7 @@ function renderArticulosView() {
             <div class="card-header">
                 <h2 class="card-title">Artículos</h2>
                 <div style="display: flex; gap: 8px; flex-wrap:wrap;">
-                    <a href="http://localhost:3000/api/articulos/template"
+                    <a href="${window.location.origin}/api/articulos/template"
                        class="btn btn-secondary" download title="Descargar planilla Excel para carga masiva">
                         📥 Descargar Template Excel
                     </a>
@@ -79,7 +79,7 @@ function renderArticulosView() {
                         </button>
                     </div>
                     <div style="margin-top:12px; text-align:center">
-                        <a href="http://localhost:3000/api/articulos/template" download class="btn btn-secondary btn-sm">
+                        <a href="${window.location.origin}/api/articulos/template" download class="btn btn-secondary btn-sm">
                             📥 Descargar Template
                         </a>
                     </div>
@@ -359,7 +359,7 @@ async function saveArticulo() {
 
 async function exportar() {
     const a = document.createElement('a');
-    a.href = 'http://localhost:3000/api/export/articulos';
+    a.href = `${window.location.origin}/api/export/articulos`;
     a.download = 'articulos.xlsx';
     a.click();
 }
@@ -403,7 +403,7 @@ async function handleFile(file) {
     formData.append('file', file);
 
     try {
-        const response = await fetch('http://localhost:3000/api/upload/articulos', {
+        const response = await fetch(`${window.location.origin}/api/upload/articulos`, {
             method: 'POST',
             credentials: 'include',
             body: formData
@@ -432,3 +432,5 @@ window.articulosModule = {
     saveArticulo,
     exportar,
 };
+
+

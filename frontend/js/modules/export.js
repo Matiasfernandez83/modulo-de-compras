@@ -125,3 +125,5 @@ export const ExportAPI = {
 
 // Exponer globalmente
 window.ExportAPI = ExportAPI;
+
+
