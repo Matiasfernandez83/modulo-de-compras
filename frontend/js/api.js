@@ -123,7 +123,11 @@ export const ArticulosAPI = {
     create: (data) => API.post('/articulos', data),
     update: (id, data) => API.put(`/articulos/${id}`, data),
     getCategorias: () => API.get('/articulos/categorias'),
-    createCategoria: (data) => API.post('/articulos/categorias', data)
+    createCategoria: (data) => API.post('/articulos/categorias', data),
+    getSubcategorias: (categoriaId) => API.get(`/articulos/subcategorias?categoria_id=${categoriaId}`),
+    createSubcategoria: (data) => API.post('/articulos/subcategorias', data),
+    proximoCodigo: (categoriaId, subcategoriaId) =>
+        API.get(`/articulos/proximo-codigo?categoria_id=${categoriaId}&subcategoria_id=${subcategoriaId}`)
 };
 
 export const ListasPreciosAPI = {
