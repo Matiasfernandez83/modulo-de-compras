@@ -324,3 +324,14 @@ CREATE INDEX IF NOT EXISTS idx_lista_precios_vigencia ON listas_precios(fecha_vi
 CREATE INDEX IF NOT EXISTS idx_comprobantes_tipo ON comprobantes(tipo);
 CREATE INDEX IF NOT EXISTS idx_comprobantes_proveedor ON comprobantes(proveedor_id);
 CREATE INDEX IF NOT EXISTS idx_competencias_estado ON competencias(estado);
+
+-- Índices sobre claves foráneas consultadas con frecuencia
+CREATE INDEX IF NOT EXISTS idx_listas_precios_proveedor ON listas_precios(proveedor_id);
+CREATE INDEX IF NOT EXISTS idx_lpi_lista ON lista_precios_items(lista_precio_id);
+CREATE INDEX IF NOT EXISTS idx_lpi_articulo ON lista_precios_items(articulo_id);
+CREATE INDEX IF NOT EXISTS idx_comprobante_items_comprobante ON comprobante_items(comprobante_id);
+CREATE INDEX IF NOT EXISTS idx_comprobante_items_articulo ON comprobante_items(articulo_id);
+CREATE INDEX IF NOT EXISTS idx_competencia_items_competencia ON competencia_items(competencia_id);
+CREATE INDEX IF NOT EXISTS idx_competencia_proveedores_comp ON competencia_proveedores(competencia_id);
+CREATE INDEX IF NOT EXISTS idx_planificacion_items_plan ON planificacion_items(planificacion_id);
+CREATE INDEX IF NOT EXISTS idx_sesiones_usuario ON sesiones_usuario(usuario_id);

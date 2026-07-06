@@ -6,7 +6,7 @@ Sistema completo de gestión de compras con autenticación, gestión de proveedo
 
 ### Módulos Core
 
-- ✅ **Autenticación** - Login/logout con JWT
+- ✅ **Autenticación** - Login/logout con sesiones de Flask (cookies HttpOnly) y rate limiting
 - ✅ **Proveedores** - CRUD completo
 - ✅ **Artículos** - Gestión de catálogo con categorías
 - ✅ **Listas de Precios** - Gestión de precios por proveedor
@@ -75,10 +75,9 @@ Sistema de permisos granulares por módulo y acción.
 **Uso en código**:
 
 ```python
-from middleware.permissions import require_permission
+from middleware.session_auth import require_permission
 
 @app.route('/api/proveedores', methods=['POST'])
-@jwt_required()
 @require_permission('proveedores', 'crear')
 def create_proveedor():
     # ...
@@ -139,13 +138,13 @@ registrar_auditoria(
 
 **Backend**:
 
-- Python 3.x
-- Flask
-- Flask-JWT-Extended
+- Python 3.11
+- Flask (sesiones con cookies, sin JWT)
 - Flask-CORS
-- SQLite
+- SQLite (conexión centralizada en `backend/database/connection.py`, con foreign keys y modo WAL activados)
 - openpyxl (Excel)
 - pdfplumber (PDF)
+- pytest (tests)
 
 **Frontend**:
 
@@ -179,6 +178,29 @@ python app.py
 cd frontend
 python -m http.server 5500
 ```
+
+### Ejecutar los tests
+
+```bash
+pip install pytest
+python -m pytest tests/ -v
+```
+
+---
+
+## 💾 Persistencia de datos en producción (Render)
+
+⚠️ El filesystem de Render es **efímero**: sin configuración extra, el archivo
+SQLite se borra en cada deploy o reinicio y se pierden todos los datos.
+
+Opciones (ver comentarios en `render.yaml`):
+
+1. **Disco persistente de Render** (plan pago): montar un disco en `/var/data`
+   y setear `DATABASE_PATH=/var/data/gestion_compras.db`. La app ya soporta
+   la variable de entorno `DATABASE_PATH`.
+2. **Migrar a PostgreSQL** (recomendado a largo plazo): Render Postgres,
+   Supabase o Neon. Todo el acceso a datos pasa por
+   `backend/database/connection.py`, lo que simplifica la migración.
 
 ---
 

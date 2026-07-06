@@ -7,13 +7,7 @@ proveedores_bp = Blueprint('proveedores', __name__)
 
 import os
 
-def get_db():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, 'database', 'gestion_compras.db')
-    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from database.connection import get_db
 
 @proveedores_bp.route('', methods=['GET'])
 @login_required
@@ -21,20 +15,32 @@ def get_proveedores():
     """Obtener todos los proveedores"""
     conn = get_db()
     cursor = conn.cursor()
-    
+
     activo = request.args.get('activo', '1')
-    
-    cursor.execute("""
-        SELECT id, nombre, telefono, direccion, email, forma_pago, plazo_pago, 
+    # Paginación opcional: sin ?page= se devuelve la lista completa (compatible con el frontend actual)
+    page = request.args.get('page', type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 200)
+
+    query = """
+        SELECT id, nombre, telefono, direccion, email, forma_pago, plazo_pago,
                tiempo_entrega, activo, fecha_creacion
         FROM proveedores
         WHERE activo = ?
         ORDER BY nombre
-    """, (activo,))
-    
+    """
+
+    if page:
+        cursor.execute("SELECT COUNT(*) FROM proveedores WHERE activo = ?", (activo,))
+        total = cursor.fetchone()[0]
+        cursor.execute(query + " LIMIT ? OFFSET ?", (activo, per_page, (page - 1) * per_page))
+        proveedores = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'items': proveedores, 'total': total, 'page': page, 'per_page': per_page}), 200
+
+    cursor.execute(query, (activo,))
     proveedores = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(proveedores), 200
 
 @proveedores_bp.route('/<int:id>', methods=['GET'])
@@ -106,32 +112,33 @@ def create_proveedor():
 @require_permission('proveedores', 'editar')
 def update_proveedor(id):
     """Actualizar un proveedor"""
-    data = request.get_json()
-    
+    data = request.get_json() or {}
+
     conn = get_db()
     cursor = conn.cursor()
-    
-    # Obtener datos anteriores
-    cursor.execute("SELECT nombre, telefono, email FROM proveedores WHERE id = ?", (id,))
+
+    # Obtener datos actuales: los campos no enviados conservan su valor
+    cursor.execute("""
+        SELECT nombre, telefono, direccion, email, forma_pago, plazo_pago, tiempo_entrega
+        FROM proveedores WHERE id = ?
+    """, (id,))
     row = cursor.fetchone()
-    datos_anteriores = dict(row) if row else {}
-    
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Proveedor no encontrado'}), 404
+    actual = dict(row)
+    datos_anteriores = {k: actual[k] for k in ('nombre', 'telefono', 'email')}
+
+    campos = ['nombre', 'telefono', 'direccion', 'email', 'forma_pago', 'plazo_pago', 'tiempo_entrega']
+    valores = [data.get(campo, actual[campo]) for campo in campos]
+
     cursor.execute("""
         UPDATE proveedores
-        SET nombre = ?, telefono = ?, direccion = ?, email = ?, 
+        SET nombre = ?, telefono = ?, direccion = ?, email = ?,
             forma_pago = ?, plazo_pago = ?, tiempo_entrega = ?
         WHERE id = ?
-    """, (
-        data.get('nombre'),
-        data.get('telefono'),
-        data.get('direccion'),
-        data.get('email'),
-        data.get('forma_pago'),
-        data.get('plazo_pago'),
-        data.get('tiempo_entrega'),
-        id
-    ))
-    
+    """, (*valores, id))
+
     conn.commit()
     conn.close()
     

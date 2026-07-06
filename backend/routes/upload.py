@@ -14,13 +14,7 @@ ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'pdf'}  # Excel y PDF
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def get_db():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, 'database', 'gestion_compras.db')
-    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from database.connection import get_db
 
 @upload_bp.route('/articulos', methods=['POST'])
 @login_required

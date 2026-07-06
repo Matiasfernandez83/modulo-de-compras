@@ -13,6 +13,12 @@ __pycache__/
 
 # Base de datos SQLite (se genera en producción)
 backend/database/gestion_compras.db
+backend/database/*.db-wal
+backend/database/*.db-shm
+*.db-journal
+
+# Tests
+.pytest_cache/
 
 # Archivos de carga y exportaciones temporales
 uploads/
