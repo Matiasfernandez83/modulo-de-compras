@@ -3,6 +3,7 @@ import { ArticulosAPI, API } from '../api.js';
 
 let articulos = [];
 let categorias = [];
+let subcategorias = [];
 let editingId = null;
 
 export async function initArticulos() {
@@ -98,22 +99,41 @@ function renderArticulosView() {
                 <div class="modal-body">
                     <form id="articulo-form">
                         <div class="form-group">
-                            <label for="art-codigo">Código Interno *</label>
-                            <input type="text" id="art-codigo" name="codigo_interno" required>
+                            <label for="art-categoria">Categoría (rubro)</label>
+                            <div style="display:flex; gap:6px;">
+                                <select id="art-categoria" name="categoria_id" style="flex:1"
+                                        onchange="window.articulosModule.onCategoriaChange()">
+                                    <option value="">Seleccione...</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-sm" title="Nueva categoría"
+                                        onclick="window.articulosModule.nuevaCategoria()">+</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="art-subcategoria">Subcategoría (subrubro)</label>
+                            <div style="display:flex; gap:6px;">
+                                <select id="art-subcategoria" name="subcategoria_id" style="flex:1"
+                                        onchange="window.articulosModule.onSubcategoriaChange()">
+                                    <option value="">Seleccione...</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-sm" title="Nueva subcategoría"
+                                        onclick="window.articulosModule.nuevaSubcategoria()">+</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="art-codigo">Código Interno</label>
+                            <input type="text" id="art-codigo" name="codigo_interno"
+                                   placeholder="Se genera automáticamente al elegir rubro y subrubro">
+                            <small style="color:#666">Formato Polaris: rubro (3 letras) + subrubro (3 letras) + número. Ej: FIAFFF001</small>
                         </div>
                         <div class="form-group">
                             <label for="art-nombre">Nombre *</label>
-                            <input type="text" id="art-nombre" name="nombre" required>
+                            <input type="text" id="art-nombre" name="nombre" required
+                                   placeholder="Ej: PANCETA SALADA - CALCHAQUI - X KG.">
                         </div>
                         <div class="form-group">
                             <label for="art-descripcion">Descripción</label>
                             <input type="text" id="art-descripcion" name="descripcion">
-                        </div>
-                        <div class="form-group">
-                            <label for="art-categoria">Categoría</label>
-                            <select id="art-categoria" name="categoria_id">
-                                <option value="">Seleccione...</option>
-                            </select>
                         </div>
                         <div class="form-group">
                             <label for="art-unidad">Unidad de Medida</label>
@@ -145,9 +165,76 @@ function poblarSelectCategorias() {
     (categorias || []).forEach(c => {
         const opt = document.createElement('option');
         opt.value = c.id;
-        opt.textContent = c.nombre;
+        opt.textContent = c.prefijo ? `${c.nombre} (${c.prefijo})` : c.nombre;
         sel.appendChild(opt);
     });
+}
+
+async function cargarSubcategorias(categoriaId, seleccionar = null) {
+    const sel = document.getElementById('art-subcategoria');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Seleccione...</option>';
+    if (!categoriaId) { subcategorias = []; return; }
+    try {
+        subcategorias = await ArticulosAPI.getSubcategorias(categoriaId);
+    } catch { subcategorias = []; }
+    subcategorias.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = `${s.nombre} (${s.prefijo})`;
+        sel.appendChild(opt);
+    });
+    if (seleccionar) sel.value = seleccionar;
+}
+
+async function onCategoriaChange() {
+    const categoriaId = document.getElementById('art-categoria').value;
+    document.getElementById('art-codigo').value = '';
+    await cargarSubcategorias(categoriaId);
+}
+
+async function onSubcategoriaChange() {
+    // Al editar no se regenera el código: el artículo ya tiene uno
+    if (editingId) return;
+    const categoriaId = document.getElementById('art-categoria').value;
+    const subcategoriaId = document.getElementById('art-subcategoria').value;
+    if (!categoriaId || !subcategoriaId) return;
+    try {
+        const r = await ArticulosAPI.proximoCodigo(categoriaId, subcategoriaId);
+        document.getElementById('art-codigo').value = r.codigo;
+    } catch (e) {
+        console.error('No se pudo generar el código:', e);
+    }
+}
+
+async function nuevaCategoria() {
+    const nombre = prompt('Nombre de la nueva categoría (rubro):');
+    if (!nombre) return;
+    const prefijo = prompt('Prefijo de 3 letras para los códigos (ej: FIA, GOL, FYV).\nDejá vacío para generarlo automáticamente:') || null;
+    try {
+        const r = await ArticulosAPI.createCategoria({ nombre, prefijo });
+        categorias = await ArticulosAPI.getCategorias();
+        poblarSelectCategorias();
+        document.getElementById('art-categoria').value = r.id;
+        await onCategoriaChange();
+    } catch (e) {
+        alert('Error al crear la categoría: ' + e.message);
+    }
+}
+
+async function nuevaSubcategoria() {
+    const categoriaId = document.getElementById('art-categoria').value;
+    if (!categoriaId) { alert('Primero elegí una categoría'); return; }
+    const nombre = prompt('Nombre de la nueva subcategoría (subrubro):');
+    if (!nombre) return;
+    const prefijo = prompt('Prefijo de 3 letras para los códigos (ej: FFF, ALF, FRU).\nDejá vacío para generarlo automáticamente:') || null;
+    try {
+        const r = await ArticulosAPI.createSubcategoria({ categoria_id: categoriaId, nombre, prefijo });
+        await cargarSubcategorias(categoriaId, r.id);
+        await onSubcategoriaChange();
+    } catch (e) {
+        alert('Error al crear la subcategoría: ' + e.message);
+    }
 }
 
 async function loadArticulos() {
@@ -308,6 +395,7 @@ function showCreateModal() {
     document.getElementById('articulo-modal-titulo').textContent = 'Nuevo Artículo';
     document.getElementById('articulo-form').reset();
     poblarSelectCategorias();
+    document.getElementById('art-subcategoria').innerHTML = '<option value="">Seleccione...</option>';
     document.getElementById('articulo-modal').style.display = 'flex';
 }
 
@@ -324,6 +412,7 @@ function editArticulo(id) {
     document.getElementById('art-descripcion').value = a.descripcion || '';
     document.getElementById('art-categoria').value = a.categoria_id || '';
     document.getElementById('art-unidad').value = a.unidad_medida || '';
+    cargarSubcategorias(a.categoria_id, a.subcategoria_id || null);
 
     document.getElementById('articulo-modal').style.display = 'flex';
 }
@@ -335,10 +424,11 @@ function closeModal() {
 
 async function saveArticulo() {
     const data = {
-        codigo_interno: document.getElementById('art-codigo').value,
+        codigo_interno: document.getElementById('art-codigo').value || null,
         nombre: document.getElementById('art-nombre').value,
         descripcion: document.getElementById('art-descripcion').value,
         categoria_id: document.getElementById('art-categoria').value || null,
+        subcategoria_id: document.getElementById('art-subcategoria').value || null,
         unidad_medida: document.getElementById('art-unidad').value,
     };
 
@@ -431,6 +521,10 @@ window.articulosModule = {
     closeModal,
     saveArticulo,
     exportar,
+    onCategoriaChange,
+    onSubcategoriaChange,
+    nuevaCategoria,
+    nuevaSubcategoria,
 };
 
 

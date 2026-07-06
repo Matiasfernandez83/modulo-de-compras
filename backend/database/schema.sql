@@ -49,12 +49,23 @@ CREATE TABLE IF NOT EXISTS proveedores (
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabla de Categorías
+-- Tabla de Categorías (rubros; prefijo de 3 letras para códigos, ej: FIA, GOL, FYV)
 CREATE TABLE IF NOT EXISTS categorias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
     descripcion TEXT,
     activo BOOLEAN DEFAULT 1
+);
+
+-- Tabla de Subcategorías (subrubros; prefijo de 3 letras, ej: FFF, ALF, FRU)
+CREATE TABLE IF NOT EXISTS subcategorias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    categoria_id INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    prefijo TEXT NOT NULL,
+    activo BOOLEAN DEFAULT 1,
+    FOREIGN KEY (categoria_id) REFERENCES categorias(id),
+    UNIQUE(categoria_id, nombre)
 );
 
 -- Tabla de Artículos

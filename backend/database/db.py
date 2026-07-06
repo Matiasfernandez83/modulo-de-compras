@@ -4,6 +4,14 @@ from pathlib import Path
 
 from database.connection import get_db_path
 
+
+def _ensure_column(cursor, tabla, columna, definicion):
+    """Agregar una columna si no existe (migración liviana para bases ya creadas)."""
+    columnas = [fila[1] for fila in cursor.execute(f"PRAGMA table_info({tabla})").fetchall()]
+    if columna not in columnas:
+        cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+
+
 def init_database():
     """Inicializa la base de datos SQLite con todos los schemas"""
     db_dir = Path(__file__).parent
@@ -32,6 +40,10 @@ def init_database():
         else:
             print(f"Advertencia: No se encontró el esquema {schema_name}")
     
+    # Migraciones livianas sobre bases existentes (CREATE TABLE IF NOT EXISTS no altera tablas)
+    _ensure_column(cursor, 'categorias', 'prefijo', 'TEXT')
+    _ensure_column(cursor, 'articulos', 'subcategoria_id', 'INTEGER REFERENCES subcategorias(id)')
+
     # Crear usuario admin por defecto
     from werkzeug.security import generate_password_hash
     admin_password = generate_password_hash('admin123')

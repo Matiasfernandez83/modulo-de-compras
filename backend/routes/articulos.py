@@ -9,6 +9,49 @@ import os
 
 from database.connection import get_db
 
+
+def _derivar_prefijo(nombre):
+    """Prefijo de 3 letras a partir del nombre (estilo Polaris).
+
+    'FRUTAS Y VERDURAS' -> 'FYV' (iniciales), 'FIAMBRES' -> 'FIA' (primeras 3 letras).
+    """
+    palabras = [p for p in ''.join(c if c.isalpha() or c.isspace() else ' ' for c in nombre).split() if p]
+    if len(palabras) >= 3:
+        return ''.join(p[0] for p in palabras[:3]).upper()
+    letras = ''.join(palabras)
+    return letras[:3].upper().ljust(3, 'X')
+
+
+def _generar_codigo(cursor, categoria_id, subcategoria_id):
+    """Generar código estilo Polaris: PREFIJO_RUBRO + PREFIJO_SUBRUBRO + secuencial.
+
+    Ej: FIA + FFF + 001 = FIAFFF001. Devuelve (codigo, error).
+    """
+    cat = cursor.execute("SELECT prefijo, nombre FROM categorias WHERE id = ?", (categoria_id,)).fetchone()
+    if not cat:
+        return None, 'Categoría inexistente'
+    sub = cursor.execute(
+        "SELECT prefijo FROM subcategorias WHERE id = ? AND categoria_id = ?",
+        (subcategoria_id, categoria_id)
+    ).fetchone()
+    if not sub:
+        return None, 'Subcategoría inexistente o no pertenece a la categoría'
+
+    prefijo_cat = cat['prefijo'] or _derivar_prefijo(cat['nombre'])
+    prefijo = (prefijo_cat + sub['prefijo']).upper()
+
+    # Buscar el número más alto ya usado con este prefijo
+    filas = cursor.execute(
+        "SELECT codigo_interno FROM articulos WHERE codigo_interno LIKE ?", (prefijo + '%',)
+    ).fetchall()
+    maximo = 0
+    for fila in filas:
+        sufijo = fila['codigo_interno'][len(prefijo):]
+        if sufijo.isdigit():
+            maximo = max(maximo, int(sufijo))
+    return f"{prefijo}{maximo + 1:03d}", None
+
+
 @articulos_bp.route('', methods=['GET'])
 @login_required
 def get_articulos():
@@ -30,9 +73,11 @@ def get_articulos():
 
     query = f"""
         SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.unidad_medida, a.activo,
-               c.nombre as categoria_nombre
+               a.categoria_id, a.subcategoria_id,
+               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre
         FROM articulos a
         LEFT JOIN categorias c ON a.categoria_id = c.id
+        LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
         {where}
         ORDER BY a.nombre
     """
@@ -59,10 +104,12 @@ def get_articulo(id):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.categoria_id, a.unidad_medida, a.activo,
-               c.nombre as categoria_nombre
+        SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.categoria_id, a.subcategoria_id,
+               a.unidad_medida, a.activo,
+               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre
         FROM articulos a
         LEFT JOIN categorias c ON a.categoria_id = c.id
+        LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
         WHERE a.id = ?
     """, (id,))
     
@@ -77,53 +124,76 @@ def get_articulo(id):
 @articulos_bp.route('', methods=['POST'])
 @require_permission('articulos', 'crear')
 def create_articulo():
-    """Crear un nuevo artículo"""
-    data = request.get_json()
-    
-    if not data.get('codigo_interno') or not data.get('nombre'):
-        return jsonify({'error': 'Código interno y nombre son requeridos'}), 400
-    
+    """Crear un nuevo artículo.
+
+    El código interno se puede omitir: si vienen categoria_id y subcategoria_id,
+    se genera automáticamente con el formato RUBRO+SUBRUBRO+número (ej: FIAFFF001).
+    """
+    data = request.get_json() or {}
+
+    if not data.get('nombre'):
+        return jsonify({'error': 'El nombre es requerido'}), 400
+
+    codigo_manual = data.get('codigo_interno')
+    if not codigo_manual and not (data.get('categoria_id') and data.get('subcategoria_id')):
+        return jsonify({'error': 'Ingresá un código interno, o elegí categoría y subcategoría para generarlo automáticamente'}), 400
+
     conn = get_db()
     cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            INSERT INTO articulos (codigo_interno, nombre, descripcion, categoria_id, unidad_medida)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            data.get('codigo_interno'),
-            data.get('nombre'),
-            data.get('descripcion'),
-            data.get('categoria_id'),
-            data.get('unidad_medida')
-        ))
-        
-        articulo_id = cursor.lastrowid
-        
-        # Inicializar stock en 0
-        cursor.execute("""
-            INSERT INTO stock (articulo_id, cantidad) VALUES (?, 0)
-        """, (articulo_id,))
-        
-        conn.commit()
+
+    # Hasta 5 intentos por si dos usuarios generan el mismo código a la vez
+    for _ in range(5):
+        codigo = codigo_manual
+        if not codigo:
+            codigo, error = _generar_codigo(cursor, data.get('categoria_id'), data.get('subcategoria_id'))
+            if error:
+                conn.close()
+                return jsonify({'error': error}), 400
+        try:
+            cursor.execute("""
+                INSERT INTO articulos (codigo_interno, nombre, descripcion, categoria_id, subcategoria_id, unidad_medida)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                codigo,
+                data.get('nombre'),
+                data.get('descripcion'),
+                data.get('categoria_id'),
+                data.get('subcategoria_id'),
+                data.get('unidad_medida')
+            ))
+            break
+        except sqlite3.IntegrityError:
+            if codigo_manual:
+                conn.close()
+                return jsonify({'error': 'El código interno ya existe'}), 400
+            # código generado ya usado por otro usuario: recalcular
+    else:
         conn.close()
-        
-        # Registrar auditoría
-        registrar_auditoria(
-            usuario_id=get_current_user_id(),
-            tabla='articulos',
-            registro_id=articulo_id,
-            accion='crear',
-            datos_nuevos={
-                'codigo_interno': data.get('codigo_interno'),
-                'nombre': data.get('nombre')
-            }
-        )
-        
-        return jsonify({'id': articulo_id, 'message': 'Artículo creado exitosamente'}), 201
-    except sqlite3.IntegrityError:
-        conn.close()
-        return jsonify({'error': 'El código interno ya existe'}), 400
+        return jsonify({'error': 'No se pudo generar un código único, reintentá'}), 500
+
+    articulo_id = cursor.lastrowid
+
+    # Inicializar stock en 0
+    cursor.execute("""
+        INSERT INTO stock (articulo_id, cantidad) VALUES (?, 0)
+    """, (articulo_id,))
+
+    conn.commit()
+    conn.close()
+
+    # Registrar auditoría
+    registrar_auditoria(
+        usuario_id=get_current_user_id(),
+        tabla='articulos',
+        registro_id=articulo_id,
+        accion='crear',
+        datos_nuevos={
+            'codigo_interno': codigo,
+            'nombre': data.get('nombre')
+        }
+    )
+
+    return jsonify({'id': articulo_id, 'codigo_interno': codigo, 'message': 'Artículo creado exitosamente'}), 201
 
 @articulos_bp.route('/<int:id>', methods=['PUT'])
 @require_permission('articulos', 'editar')
@@ -136,7 +206,7 @@ def update_articulo(id):
 
     # Obtener datos actuales: los campos no enviados conservan su valor
     cursor.execute("""
-        SELECT codigo_interno, nombre, descripcion, categoria_id, unidad_medida
+        SELECT codigo_interno, nombre, descripcion, categoria_id, subcategoria_id, unidad_medida
         FROM articulos WHERE id = ?
     """, (id,))
     row = cursor.fetchone()
@@ -146,12 +216,12 @@ def update_articulo(id):
     actual = dict(row)
     datos_anteriores = {k: actual[k] for k in ('codigo_interno', 'nombre')}
 
-    campos = ['codigo_interno', 'nombre', 'descripcion', 'categoria_id', 'unidad_medida']
+    campos = ['codigo_interno', 'nombre', 'descripcion', 'categoria_id', 'subcategoria_id', 'unidad_medida']
     valores = [data.get(campo, actual[campo]) for campo in campos]
 
     cursor.execute("""
         UPDATE articulos
-        SET codigo_interno = ?, nombre = ?, descripcion = ?, categoria_id = ?, unidad_medida = ?
+        SET codigo_interno = ?, nombre = ?, descripcion = ?, categoria_id = ?, subcategoria_id = ?, unidad_medida = ?
         WHERE id = ?
     """, (*valores, id))
 
@@ -180,34 +250,113 @@ def get_categorias():
     """Obtener todas las categorías"""
     conn = get_db()
     cursor = conn.cursor()
-    
-    cursor.execute("SELECT id, nombre, descripcion, activo FROM categorias WHERE activo = 1 ORDER BY nombre")
+
+    cursor.execute("SELECT id, nombre, descripcion, prefijo, activo FROM categorias WHERE activo = 1 ORDER BY nombre")
     categorias = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(categorias), 200
 
 @articulos_bp.route('/categorias', methods=['POST'])
 @login_required
 def create_categoria():
-    """Crear una nueva categoría"""
-    data = request.get_json()
-    
+    """Crear una nueva categoría (rubro). El prefijo se deriva del nombre si no se envía."""
+    data = request.get_json() or {}
+
     if not data.get('nombre'):
         return jsonify({'error': 'El nombre es requerido'}), 400
-    
+
+    prefijo = (data.get('prefijo') or _derivar_prefijo(data['nombre'])).strip().upper()
+    if len(prefijo) != 3 or not prefijo.isalpha():
+        return jsonify({'error': 'El prefijo debe ser exactamente 3 letras (ej: FIA, GOL, FYV)'}), 400
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        INSERT INTO categorias (nombre, descripcion) VALUES (?, ?)
-    """, (data.get('nombre'), data.get('descripcion')))
-    
+        INSERT INTO categorias (nombre, descripcion, prefijo) VALUES (?, ?, ?)
+    """, (data.get('nombre'), data.get('descripcion'), prefijo))
+
     categoria_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    
-    return jsonify({'id': categoria_id, 'message': 'Categoría creada exitosamente'}), 201
+
+    return jsonify({'id': categoria_id, 'prefijo': prefijo, 'message': 'Categoría creada exitosamente'}), 201
+
+
+# Rutas de Subcategorías
+@articulos_bp.route('/subcategorias', methods=['GET'])
+@login_required
+def get_subcategorias():
+    """Obtener subcategorías (subrubros), opcionalmente filtradas por categoría"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    categoria_id = request.args.get('categoria_id')
+    if categoria_id:
+        cursor.execute("""
+            SELECT id, categoria_id, nombre, prefijo, activo FROM subcategorias
+            WHERE categoria_id = ? AND activo = 1 ORDER BY nombre
+        """, (categoria_id,))
+    else:
+        cursor.execute("""
+            SELECT id, categoria_id, nombre, prefijo, activo FROM subcategorias
+            WHERE activo = 1 ORDER BY nombre
+        """)
+    subcategorias = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify(subcategorias), 200
+
+
+@articulos_bp.route('/subcategorias', methods=['POST'])
+@login_required
+def create_subcategoria():
+    """Crear una subcategoría (subrubro). El prefijo se deriva del nombre si no se envía."""
+    data = request.get_json() or {}
+
+    if not data.get('nombre') or not data.get('categoria_id'):
+        return jsonify({'error': 'Nombre y categoría son requeridos'}), 400
+
+    prefijo = (data.get('prefijo') or _derivar_prefijo(data['nombre'])).strip().upper()
+    if len(prefijo) != 3 or not prefijo.isalpha():
+        return jsonify({'error': 'El prefijo debe ser exactamente 3 letras (ej: FFF, ALF, FRU)'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO subcategorias (categoria_id, nombre, prefijo) VALUES (?, ?, ?)
+        """, (data.get('categoria_id'), data.get('nombre'), prefijo))
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'Ya existe esa subcategoría en la categoría, o la categoría no existe'}), 400
+
+    subcategoria_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({'id': subcategoria_id, 'prefijo': prefijo, 'message': 'Subcategoría creada exitosamente'}), 201
+
+
+@articulos_bp.route('/proximo-codigo', methods=['GET'])
+@login_required
+def get_proximo_codigo():
+    """Vista previa del próximo código a asignar para una categoría + subcategoría"""
+    categoria_id = request.args.get('categoria_id', type=int)
+    subcategoria_id = request.args.get('subcategoria_id', type=int)
+    if not categoria_id or not subcategoria_id:
+        return jsonify({'error': 'categoria_id y subcategoria_id son requeridos'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    codigo, error = _generar_codigo(cursor, categoria_id, subcategoria_id)
+    conn.close()
+
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'codigo': codigo}), 200
 
 @articulos_bp.route('/<int:id>/historial-compras', methods=['GET'])
 @login_required
