@@ -13,12 +13,7 @@ except ImportError:
 
 planificacion_bp = Blueprint('planificacion', __name__)
 
-def get_db():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, 'database', 'gestion_compras.db')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from database.connection import get_db
 
 @planificacion_bp.route('', methods=['GET'])
 @login_required

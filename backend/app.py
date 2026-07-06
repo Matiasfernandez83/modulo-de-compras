@@ -7,9 +7,10 @@ _backend_dir = os.path.dirname(os.path.abspath(__file__))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 # Inicializar extensiones
 bcrypt = Bcrypt()
@@ -28,15 +29,8 @@ def create_app():
     
     # Inicializar extensiones
     bcrypt.init_app(app)
-    # Configurar CORS - acepta localhost en dev y la URL de Render en producción
-    allowed_origins = [
-        'http://localhost:3000', 'http://127.0.0.1:3000',
-        'http://localhost:5500', 'http://127.0.0.1:5500',
-    ]
-    render_url = os.getenv('RENDER_EXTERNAL_URL')
-    if render_url:
-        allowed_origins.append(render_url)
-    CORS(app, origins=allowed_origins, supports_credentials=True)
+    # CORS: la lista de orígenes vive en config.py
+    CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
     
     # Crear directorios necesarios
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -77,6 +71,14 @@ def create_app():
     @app.route('/api/health')
     def health():
         return {'status': 'ok', 'message': 'API funcionando correctamente'}
+
+    # Errores no controlados: responder JSON en lugar de HTML de Flask
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(e):
+        if isinstance(e, HTTPException):
+            return jsonify({'error': e.description}), e.code
+        app.logger.exception('Error no controlado')
+        return jsonify({'error': 'Error interno del servidor'}), 500
     
     # Servir el frontend estático desde el mismo servidor
     # Así la app y la API están en el mismo origen: http://localhost:3000

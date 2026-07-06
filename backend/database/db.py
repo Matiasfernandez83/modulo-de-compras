@@ -2,12 +2,14 @@ import sqlite3
 import os
 from pathlib import Path
 
+from database.connection import get_db_path
+
 def init_database():
     """Inicializa la base de datos SQLite con todos los schemas"""
-    # Crear directorio si no existe
     db_dir = Path(__file__).parent
-    db_path = db_dir / 'gestion_compras.db'
-    
+    db_path = Path(get_db_path())
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Conectar a la base de datos (la crea si no existe)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()

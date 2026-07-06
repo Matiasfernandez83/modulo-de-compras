@@ -5,13 +5,7 @@ import sqlite3
 import os
 from datetime import datetime
 
-def get_db():
-    """Obtener conexión a la base de datos"""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, 'database', 'gestion_compras.db')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from database.connection import get_db
 
 def export_lista_precios_to_excel(lista_id, output_path):
     """

@@ -7,13 +7,7 @@ articulos_bp = Blueprint('articulos', __name__)
 
 import os
 
-def get_db():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, 'database', 'gestion_compras.db')
-    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from database.connection import get_db
 
 @articulos_bp.route('', methods=['GET'])
 @login_required
@@ -21,32 +15,40 @@ def get_articulos():
     """Obtener todos los artículos"""
     conn = get_db()
     cursor = conn.cursor()
-    
+
     categoria_id = request.args.get('categoria_id')
     activo = request.args.get('activo', '1')
-    
+    # Paginación opcional: sin ?page= se devuelve la lista completa (compatible con el frontend actual)
+    page = request.args.get('page', type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 200)
+
+    where = "WHERE a.activo = ?"
+    params = [activo]
     if categoria_id:
-        cursor.execute("""
-            SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.unidad_medida, a.activo,
-                   c.nombre as categoria_nombre
-            FROM articulos a
-            LEFT JOIN categorias c ON a.categoria_id = c.id
-            WHERE a.categoria_id = ? AND a.activo = ?
-            ORDER BY a.nombre
-        """, (categoria_id, activo))
-    else:
-        cursor.execute("""
-            SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.unidad_medida, a.activo,
-                   c.nombre as categoria_nombre
-            FROM articulos a
-            LEFT JOIN categorias c ON a.categoria_id = c.id
-            WHERE a.activo = ?
-            ORDER BY a.nombre
-        """, (activo,))
-    
+        where = "WHERE a.categoria_id = ? AND a.activo = ?"
+        params = [categoria_id, activo]
+
+    query = f"""
+        SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.unidad_medida, a.activo,
+               c.nombre as categoria_nombre
+        FROM articulos a
+        LEFT JOIN categorias c ON a.categoria_id = c.id
+        {where}
+        ORDER BY a.nombre
+    """
+
+    if page:
+        cursor.execute(f"SELECT COUNT(*) FROM articulos a {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.execute(query + " LIMIT ? OFFSET ?", (*params, per_page, (page - 1) * per_page))
+        articulos = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'items': articulos, 'total': total, 'page': page, 'per_page': per_page}), 200
+
+    cursor.execute(query, params)
     articulos = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(articulos), 200
 
 @articulos_bp.route('/<int:id>', methods=['GET'])
@@ -127,29 +129,32 @@ def create_articulo():
 @require_permission('articulos', 'editar')
 def update_articulo(id):
     """Actualizar un artículo"""
-    data = request.get_json()
-    
+    data = request.get_json() or {}
+
     conn = get_db()
     cursor = conn.cursor()
-    
-    # Obtener datos anteriores
-    cursor.execute("SELECT codigo_interno, nombre FROM articulos WHERE id = ?", (id,))
+
+    # Obtener datos actuales: los campos no enviados conservan su valor
+    cursor.execute("""
+        SELECT codigo_interno, nombre, descripcion, categoria_id, unidad_medida
+        FROM articulos WHERE id = ?
+    """, (id,))
     row = cursor.fetchone()
-    datos_anteriores = dict(row) if row else {}
-    
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Artículo no encontrado'}), 404
+    actual = dict(row)
+    datos_anteriores = {k: actual[k] for k in ('codigo_interno', 'nombre')}
+
+    campos = ['codigo_interno', 'nombre', 'descripcion', 'categoria_id', 'unidad_medida']
+    valores = [data.get(campo, actual[campo]) for campo in campos]
+
     cursor.execute("""
         UPDATE articulos
         SET codigo_interno = ?, nombre = ?, descripcion = ?, categoria_id = ?, unidad_medida = ?
         WHERE id = ?
-    """, (
-        data.get('codigo_interno'),
-        data.get('nombre'),
-        data.get('descripcion'),
-        data.get('categoria_id'),
-        data.get('unidad_medida'),
-        id
-    ))
-    
+    """, (*valores, id))
+
     conn.commit()
     conn.close()
     
