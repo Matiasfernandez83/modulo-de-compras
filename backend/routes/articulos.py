@@ -72,8 +72,8 @@ def get_articulos():
         params = [categoria_id, activo]
 
     query = f"""
-        SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.unidad_medida, a.activo,
-               a.categoria_id, a.subcategoria_id,
+        SELECT a.id, a.codigo_interno, a.codigo_softland, a.nombre, a.descripcion,
+               a.unidad_medida, a.activo, a.categoria_id, a.subcategoria_id,
                c.nombre as categoria_nombre, s.nombre as subcategoria_nombre
         FROM articulos a
         LEFT JOIN categorias c ON a.categoria_id = c.id
@@ -104,8 +104,8 @@ def get_articulo(id):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT a.id, a.codigo_interno, a.nombre, a.descripcion, a.categoria_id, a.subcategoria_id,
-               a.unidad_medida, a.activo,
+        SELECT a.id, a.codigo_interno, a.codigo_softland, a.nombre, a.descripcion,
+               a.categoria_id, a.subcategoria_id, a.unidad_medida, a.activo,
                c.nombre as categoria_nombre, s.nombre as subcategoria_nombre
         FROM articulos a
         LEFT JOIN categorias c ON a.categoria_id = c.id

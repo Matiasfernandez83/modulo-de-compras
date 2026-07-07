@@ -1,14 +1,17 @@
-// Módulo de planificación con detalle, carga masiva Excel y template descargable
-import { API, ArticulosAPI } from '../api.js';
+// Módulo de planificación estilo MRP: estructuras de producto (BOM),
+// explosión de materiales y cálculo de necesidades de compra contra stock.
+import { API, ArticulosAPI, ProductosAPI } from '../api.js';
 
 let planificaciones = [];
+let productos = [];
 let articulos = [];
 let currentPlanId = null;
+let currentProductoId = null;
 
 export async function initPlanificacion() {
     renderPlanificacionView();
-    await loadPlanificaciones();
-    await loadArticulos();
+    await Promise.all([loadPlanificaciones(), loadProductos()]);
+    loadArticulos();
 }
 
 function renderPlanificacionView() {
@@ -16,73 +19,66 @@ function renderPlanificacionView() {
     contentArea.innerHTML = `
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Planificación de Compras</h2>
-                <div style="display:flex; gap:8px; flex-wrap:wrap">
-                    <a href="${window.location.origin}/api/planificacion/template"
-                       class="btn btn-secondary" download title="Descargar planilla Excel">
-                        📥 Descargar Template Excel
-                    </a>
-                    <button class="btn btn-primary" onclick="window.planificacionModule.showCreateModal()">
-                        + Nueva Planificación
-                    </button>
-                </div>
+                <h2 class="card-title">Planificación de Compras (MRP)</h2>
+                <button class="btn btn-primary" onclick="window.planificacionModule.showCreateModal()">
+                    + Nueva Planificación
+                </button>
             </div>
             <p style="padding:8px 16px; margin:0; color:#666; font-size:0.85rem">
-                💡 <strong>Click en el nombre</strong> de una planificación para ver sus artículos y cargar ítems masivamente
+                💡 Elegí un producto y cuántas unidades vas a fabricar: el sistema calcula solo
+                todos los insumos necesarios y qué falta comprar según el stock.
             </p>
             <div class="card-body">
                 <div id="planificaciones-table-container">
-                    <div class="flex-center" style="padding: 40px;">
-                        <div class="spinner"></div>
-                    </div>
+                    <div class="flex-center" style="padding: 40px;"><div class="spinner"></div></div>
                 </div>
             </div>
         </div>
 
-        <!-- Modal detalle planificación con ítems -->
+        <div class="card" style="margin-top:16px">
+            <div class="card-header">
+                <h2 class="card-title">Estructuras de Producto (recetas)</h2>
+            </div>
+            <p style="padding:8px 16px; margin:0; color:#666; font-size:0.85rem">
+                Cada estructura define qué insumos y en qué cantidad lleva UNA unidad del producto.
+            </p>
+            <div class="card-body">
+                <div id="productos-table-container">
+                    <div class="flex-center" style="padding: 24px;"><div class="spinner"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal necesidades de compra -->
         <div id="plan-detalle-modal" class="modal-overlay" style="display:none">
             <div class="modal modal-lg">
                 <div class="modal-header">
-                    <h3 class="modal-title" id="plan-detalle-titulo">Detalle de Planificación</h3>
+                    <h3 class="modal-title" id="plan-detalle-titulo">Necesidades de Compra</h3>
                     <button class="modal-close" onclick="document.getElementById('plan-detalle-modal').style.display='none'">&times;</button>
                 </div>
                 <div class="modal-body" id="plan-detalle-body">
                     <div class="flex-center"><div class="spinner"></div></div>
                 </div>
                 <div class="modal-footer" style="gap:8px; flex-wrap:wrap">
-                    <button class="btn btn-secondary" onclick="window.planificacionModule.showImportModal()">📤 Importar Items Excel</button>
+                    <a id="plan-export-link" class="btn btn-secondary" href="#" download>📥 Exportar a Excel</a>
                     <button class="btn btn-secondary" onclick="window.planificacionModule.showItemsModal()">+ Agregar Artículo</button>
                     <button class="btn btn-secondary" onclick="document.getElementById('plan-detalle-modal').style.display='none'">Cerrar</button>
                 </div>
             </div>
         </div>
 
-        <!-- Modal Importar Excel para planificación -->
-        <div id="plan-import-modal" class="modal-overlay" style="display:none">
-            <div class="modal">
+        <!-- Modal estructura de producto -->
+        <div id="producto-modal" class="modal-overlay" style="display:none">
+            <div class="modal modal-lg">
                 <div class="modal-header">
-                    <h3>Importar Artículos desde Excel</h3>
-                    <button class="modal-close" onclick="window.planificacionModule.closeImportModal()">&times;</button>
+                    <h3 class="modal-title" id="producto-modal-titulo">Estructura de Producto</h3>
+                    <button class="modal-close" onclick="document.getElementById('producto-modal').style.display='none'">&times;</button>
                 </div>
-                <div class="modal-body">
-                    <div class="upload-area" id="plan-upload-area">
-                        <div class="upload-icon">📁</div>
-                        <p><strong>Arrastrá tu archivo Excel aquí</strong></p>
-                        <p>o hacé click para seleccionar</p>
-                        <input type="file" id="plan-file-input" accept=".xlsx,.xls" style="display:none">
-                        <button class="btn btn-secondary" onclick="document.getElementById('plan-file-input').click()">
-                            Seleccionar Archivo
-                        </button>
-                    </div>
-                    <div style="margin-top:12px; text-align:center">
-                        <a href="${window.location.origin}/api/planificacion/template" download class="btn btn-secondary btn-sm">
-                            📥 Descargar Template
-                        </a>
-                    </div>
-                    <div id="plan-upload-result" style="margin-top:16px"></div>
+                <div class="modal-body" id="producto-modal-body">
+                    <div class="flex-center"><div class="spinner"></div></div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="window.planificacionModule.closeImportModal()">Cerrar</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('producto-modal').style.display='none'">Cerrar</button>
                 </div>
             </div>
         </div>
@@ -97,33 +93,44 @@ function renderPlanificacionView() {
                 <div class="modal-body">
                     <form id="planificacion-form">
                         <div class="form-group">
+                            <label for="plan-producto">Producto a fabricar</label>
+                            <select id="plan-producto" name="producto_id">
+                                <option value="">(Planificación manual, sin producto)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="plan-cantidad">Cantidad de unidades a fabricar</label>
+                            <input type="number" id="plan-cantidad" value="1" min="1" step="1">
+                            <small style="color:#666">Ej: 20 bateas → el sistema multiplica la receta × 20</small>
+                        </div>
+                        <div class="form-group">
                             <label for="plan-nombre">Nombre *</label>
-                            <input type="text" id="plan-nombre" name="nombre" required>
+                            <input type="text" id="plan-nombre" name="nombre" required placeholder="Ej: Pedido Diciembre - 20 bateas">
                         </div>
                         <div class="form-group">
                             <label for="plan-descripcion">Descripción</label>
-                            <textarea id="plan-descripcion" name="descripcion" rows="3"></textarea>
+                            <textarea id="plan-descripcion" name="descripcion" rows="2"></textarea>
                         </div>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
                             <div class="form-group">
-                                <label for="plan-fecha-inicio">Fecha Inicio *</label>
-                                <input type="date" id="plan-fecha-inicio" name="fecha_inicio" required>
+                                <label for="plan-fecha-inicio">Fecha Inicio</label>
+                                <input type="date" id="plan-fecha-inicio" name="fecha_inicio">
                             </div>
                             <div class="form-group">
-                                <label for="plan-fecha-fin">Fecha Fin *</label>
-                                <input type="date" id="plan-fecha-fin" name="fecha_fin" required>
+                                <label for="plan-fecha-fin">Fecha Fin</label>
+                                <input type="date" id="plan-fecha-fin" name="fecha_fin">
                             </div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="window.planificacionModule.closeModal()">Cancelar</button>
-                    <button class="btn btn-primary" onclick="window.planificacionModule.savePlanificacion()">Guardar</button>
+                    <button class="btn btn-primary" onclick="window.planificacionModule.savePlanificacion()">Crear y Calcular</button>
                 </div>
             </div>
         </div>
 
-        <!-- Modal agregar artículo individual -->
+        <!-- Modal agregar artículo suelto -->
         <div id="items-modal" class="modal-overlay" style="display: none;">
             <div class="modal">
                 <div class="modal-header">
@@ -139,8 +146,8 @@ function renderPlanificacionView() {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="cantidad_estimada">Cantidad Estimada *</label>
-                            <input type="number" id="cantidad_estimada" name="cantidad_estimada" min="1" required>
+                            <label for="cantidad_estimada">Cantidad *</label>
+                            <input type="number" id="cantidad_estimada" name="cantidad_estimada" min="0.01" step="0.01" required>
                         </div>
                     </form>
                 </div>
@@ -151,8 +158,6 @@ function renderPlanificacionView() {
             </div>
         </div>
     `;
-
-    setupPlanUploadDnD();
 }
 
 async function loadPlanificaciones() {
@@ -160,143 +165,181 @@ async function loadPlanificaciones() {
         planificaciones = await API.get('/planificacion');
         renderPlanificacionesTable();
     } catch (error) {
-        console.error('Error loading planificaciones:', error);
-        showError('Error al cargar planificaciones');
+        document.getElementById('planificaciones-table-container').innerHTML =
+            '<p class="error-message">Error al cargar planificaciones</p>';
+    }
+}
+
+async function loadProductos() {
+    try {
+        productos = await ProductosAPI.getAll();
+        renderProductosTable();
+        poblarSelectProductos();
+    } catch (e) {
+        document.getElementById('productos-table-container').innerHTML =
+            '<p class="error-message">Error al cargar productos</p>';
     }
 }
 
 async function loadArticulos() {
     try {
         articulos = await ArticulosAPI.getAll();
-        updateArticulosSelect();
-    } catch (e) { console.error(e); }
+    } catch (e) { articulos = []; }
 }
 
-function updateArticulosSelect() {
-    const select = document.getElementById('articulo_id');
-    if (!select) return;
-    select.innerHTML = '<option value="">Seleccione un artículo...</option>';
-    articulos.forEach(art => {
+function poblarSelectProductos() {
+    const sel = document.getElementById('plan-producto');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">(Planificación manual, sin producto)</option>';
+    productos.forEach(p => {
         const opt = document.createElement('option');
-        opt.value = art.id;
-        opt.textContent = `${art.codigo_interno} — ${art.nombre || art.descripcion}`;
-        select.appendChild(opt);
+        opt.value = p.id;
+        opt.textContent = `${p.codigo} — ${p.nombre} (${p.total_materiales} insumos)`;
+        sel.appendChild(opt);
     });
+}
+
+function renderProductosTable() {
+    const container = document.getElementById('productos-table-container');
+    if (!productos.length) {
+        container.innerHTML = '<p class="text-center">No hay productos con estructura cargada.</p>';
+        return;
+    }
+    container.innerHTML = `
+        <table class="table">
+            <thead><tr><th>Código</th><th>Producto</th><th>Insumos en la receta</th><th>Acciones</th></tr></thead>
+            <tbody>
+                ${productos.map(p => `<tr>
+                    <td><strong>${p.codigo}</strong></td>
+                    <td>${p.nombre}</td>
+                    <td>${p.total_materiales}</td>
+                    <td><button class="btn btn-sm btn-secondary"
+                                onclick="window.planificacionModule.verEstructura(${p.id})">📋 Ver estructura</button></td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+async function verEstructura(productoId) {
+    currentProductoId = productoId;
+    document.getElementById('producto-modal-body').innerHTML =
+        '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
+    document.getElementById('producto-modal').style.display = 'flex';
+    try {
+        const p = await ProductosAPI.getById(productoId);
+        document.getElementById('producto-modal-titulo').textContent = `${p.codigo} — ${p.nombre}`;
+
+        let html = `<p style="color:#666; margin-bottom:12px">
+            Cantidades por <strong>1 unidad</strong> del producto (${p.total_materiales} insumos)</p>`;
+        let seccionActual = null;
+        html += '<div class="table-responsive"><table class="table"><thead><tr><th>Código</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Plano</th></tr></thead><tbody>';
+        for (const m of p.materiales) {
+            if (m.seccion && m.seccion !== seccionActual) {
+                seccionActual = m.seccion;
+                html += `<tr><td colspan="5" style="background:#f0f4f8; font-weight:bold">${seccionActual}</td></tr>`;
+            }
+            html += `<tr>
+                <td>${m.codigo_interno}</td>
+                <td title="${m.observaciones || ''}">${m.articulo_nombre}</td>
+                <td><strong>${m.cantidad_por_unidad}</strong></td>
+                <td>${m.unidad_medida || '-'}</td>
+                <td style="font-size:0.8rem; color:#666">${m.plano || '-'}</td>
+            </tr>`;
+        }
+        html += '</tbody></table></div>';
+        document.getElementById('producto-modal-body').innerHTML = html;
+    } catch (e) {
+        document.getElementById('producto-modal-body').innerHTML =
+            '<p class="error-message">Error al cargar la estructura</p>';
+    }
 }
 
 function renderPlanificacionesTable() {
     const container = document.getElementById('planificaciones-table-container');
-
     if (planificaciones.length === 0) {
-        container.innerHTML = '<p class="text-center">No hay planificaciones registradas</p>';
+        container.innerHTML = '<p class="text-center">No hay planificaciones. Creá una eligiendo un producto y la cantidad a fabricar.</p>';
         return;
     }
-
     container.innerHTML = `
         <table class="table">
-            <thead>
-                <tr>
-                    <th>Nombre</th><th>Descripción</th>
-                    <th>Fecha Inicio</th><th>Fecha Fin</th>
-                    <th>Estado</th><th>Acciones</th>
-                </tr>
-            </thead>
+            <thead><tr>
+                <th>Nombre</th><th>Producto</th><th>Unidades</th>
+                <th>Fecha Inicio</th><th>Fecha Fin</th><th>Estado</th><th>Acciones</th>
+            </tr></thead>
             <tbody>
                 ${planificaciones.map(p => {
                     const estado = getEstado(p);
                     return `<tr>
-                        <td>
-                            <span style="color:var(--primary-color);cursor:pointer;font-weight:500"
-                                  onclick="window.planificacionModule.verDetalle(${p.id})"
-                                  title="Click para ver artículos de esta planificación">
-                                ${p.nombre}
-                            </span>
-                        </td>
-                        <td>${p.descripcion || '-'}</td>
+                        <td><span style="color:var(--primary-color);cursor:pointer;font-weight:500"
+                              onclick="window.planificacionModule.verNecesidades(${p.id})">${p.nombre}</span></td>
+                        <td>${p.producto_nombre || '-'}</td>
+                        <td>${p.producto_id ? p.cantidad_unidades : '-'}</td>
                         <td>${formatDate(p.fecha_inicio)}</td>
                         <td>${formatDate(p.fecha_fin)}</td>
                         <td><span class="badge badge-${estado.class}">${estado.text}</span></td>
-                        <td style="display:flex; gap:6px; flex-wrap:wrap">
-                            <button class="btn btn-sm btn-secondary" onclick="window.planificacionModule.verDetalle(${p.id})">
-                                👁 Ver / + Artículos
-                            </button>
-                            <button class="btn btn-sm btn-secondary" onclick="window.planificacionModule.showImportModal(${p.id})" title="Importar ítems desde Excel">
-                                📤 Importar Excel
-                            </button>
-                        </td>
+                        <td><button class="btn btn-sm btn-primary"
+                                    onclick="window.planificacionModule.verNecesidades(${p.id})">🧮 Necesidades</button></td>
                     </tr>`;
                 }).join('')}
             </tbody>
-        </table>
-    `;
+        </table>`;
 }
 
-async function verDetalle(planId) {
+async function verNecesidades(planId) {
     currentPlanId = planId;
-    const plan = planificaciones.find(p => p.id === planId);
-    if (!plan) return;
-
-    document.getElementById('plan-detalle-titulo').textContent = plan.nombre;
     document.getElementById('plan-detalle-body').innerHTML =
         '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
     document.getElementById('plan-detalle-modal').style.display = 'flex';
+    document.getElementById('plan-export-link').href =
+        `${window.location.origin}/api/planificacion/${planId}/necesidades/export`;
 
     try {
-        const detalle = await API.get(`/planificacion/${planId}`);
+        const data = await API.get(`/planificacion/${planId}/necesidades`);
+        const plan = data.planificacion;
+        const res = data.resumen;
+        document.getElementById('plan-detalle-titulo').textContent = `Necesidades — ${plan.nombre}`;
 
-        const infoEstado = getEstado(detalle);
+        const semaforos = { rojo: '🔴', amarillo: '🟡', verde: '🟢' };
         const cabecera = `
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:16px">
-                <div><strong>Estado:</strong> <span class="badge badge-${infoEstado.class}">${infoEstado.text}</span></div>
-                <div><strong>Inicio:</strong> ${formatDate(detalle.fecha_inicio)}</div>
-                <div><strong>Fin:</strong> ${formatDate(detalle.fecha_fin)}</div>
-                <div><strong>Total artículos:</strong> ${detalle.total_items}</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px">
+                <div><strong>Producto:</strong> ${plan.producto_nombre || 'Manual'}</div>
+                <div><strong>Unidades:</strong> ${plan.cantidad_unidades || '-'}</div>
+                <div>🔴🟡 <strong>A comprar:</strong> ${res.a_comprar}</div>
+                <div>🟢 <strong>Cubiertos por stock:</strong> ${res.cubiertos_por_stock}</div>
             </div>`;
 
-        const tablaItems = (detalle.items || []).length === 0
-            ? '<p class="text-muted">Sin artículos cargados. Use "+ Agregar Artículo" o importe un Excel con el template.</p>'
-            : `<table class="table">
+        const tabla = data.necesidades.length === 0
+            ? '<p class="text-muted">Sin ítems. Agregá artículos o creá la planificación desde un producto.</p>'
+            : `<div class="table-responsive"><table class="table">
                 <thead><tr>
-                    <th>Código</th><th>Artículo</th><th>Categoría</th>
-                    <th>Unidad</th><th>Cantidad Requerida</th>
+                    <th></th><th>Código</th><th>Artículo</th><th>Categoría</th><th>UM</th>
+                    <th>Requerido</th><th>Stock</th><th>A Comprar</th>
                 </tr></thead>
                 <tbody>
-                    ${detalle.items.map(it => `<tr>
-                        <td>${it.codigo_interno}</td>
-                        <td>${it.nombre}</td>
-                        <td>${it.categoria || '-'}</td>
-                        <td>${it.unidad_medida || '-'}</td>
-                        <td><strong>${it.cantidad_requerida || 0}</strong></td>
+                    ${data.necesidades.map(n => `<tr>
+                        <td>${semaforos[n.semaforo]}</td>
+                        <td>${n.codigo_interno}</td>
+                        <td>${n.nombre}</td>
+                        <td>${n.categoria || '-'}</td>
+                        <td>${n.unidad_medida || '-'}</td>
+                        <td>${n.cantidad_requerida}</td>
+                        <td>${n.stock_disponible}</td>
+                        <td><strong>${n.necesidad_neta > 0 ? n.necesidad_neta : '—'}</strong></td>
                     </tr>`).join('')}
                 </tbody>
-               </table>`;
+               </table></div>`;
 
-        document.getElementById('plan-detalle-body').innerHTML = `
-            ${cabecera}
-            ${plan.descripcion ? `<p style="color:#666; margin-bottom:16px">${plan.descripcion}</p>` : ''}
-            <h4 style="border-bottom:2px solid var(--primary-color); padding-bottom:6px; margin-bottom:12px">
-                📦 Artículos Planificados (${detalle.total_items})
-            </h4>
-            ${tablaItems}
-        `;
+        document.getElementById('plan-detalle-body').innerHTML = cabecera + tabla;
     } catch (e) {
         document.getElementById('plan-detalle-body').innerHTML =
-            '<p class="error-message">Error al cargar el detalle</p>';
+            '<p class="error-message">Error al calcular las necesidades</p>';
     }
-}
-
-function showImportModal(planId) {
-    if (planId) currentPlanId = planId;
-    document.getElementById('plan-import-modal').style.display = 'flex';
-    document.getElementById('plan-upload-result').innerHTML = '';
-}
-
-function closeImportModal() {
-    document.getElementById('plan-import-modal').style.display = 'none';
 }
 
 function showCreateModal() {
     document.getElementById('planificacion-form').reset();
+    document.getElementById('plan-cantidad').value = 1;
+    poblarSelectProductos();
     document.getElementById('planificacion-modal').style.display = 'flex';
 }
 
@@ -305,7 +348,14 @@ function closeModal() {
 }
 
 function showItemsModal() {
-    updateArticulosSelect();
+    const select = document.getElementById('articulo_id');
+    select.innerHTML = '<option value="">Seleccione un artículo...</option>';
+    articulos.forEach(art => {
+        const opt = document.createElement('option');
+        opt.value = art.id;
+        opt.textContent = `${art.codigo_interno} — ${art.nombre || art.descripcion}`;
+        select.appendChild(opt);
+    });
     document.getElementById('items-form').reset();
     document.getElementById('items-modal').style.display = 'flex';
 }
@@ -315,24 +365,33 @@ function closeItemsModal() {
 }
 
 async function savePlanificacion() {
+    const productoId = document.getElementById('plan-producto').value || null;
     const data = {
         nombre: document.getElementById('plan-nombre').value,
         descripcion: document.getElementById('plan-descripcion').value,
-        fecha_inicio: document.getElementById('plan-fecha-inicio').value,
-        fecha_fin: document.getElementById('plan-fecha-fin').value,
+        fecha_inicio: document.getElementById('plan-fecha-inicio').value || null,
+        fecha_fin: document.getElementById('plan-fecha-fin').value || null,
+        producto_id: productoId,
+        cantidad_unidades: document.getElementById('plan-cantidad').value || 1,
     };
+    if (!data.nombre) { alert('Poné un nombre a la planificación'); return; }
     try {
-        await API.post('/planificacion', data);
+        const r = await API.post('/planificacion', data);
         closeModal();
         await loadPlanificaciones();
-        showSuccess('Planificación creada exitosamente');
+        if (r.items_generados) {
+            alert(`Planificación creada: ${r.items_generados} insumos calculados automáticamente`);
+            verNecesidades(r.id);
+        } else {
+            alert('Planificación creada');
+        }
     } catch (e) {
-        showError('Error al guardar planificación');
+        alert('Error al guardar planificación: ' + e.message);
     }
 }
 
 async function addItem() {
-    if (!currentPlanId) { showError('No hay planificación seleccionada'); return; }
+    if (!currentPlanId) { alert('No hay planificación seleccionada'); return; }
     const data = {
         articulo_id: document.getElementById('articulo_id').value,
         cantidad_estimada: document.getElementById('cantidad_estimada').value,
@@ -340,69 +399,14 @@ async function addItem() {
     try {
         await API.post(`/planificacion/${currentPlanId}/items`, data);
         closeItemsModal();
-        showSuccess('Artículo agregado');
-        await verDetalle(currentPlanId); // recargar detalle
+        await verNecesidades(currentPlanId);
     } catch (e) {
-        showError('Error al agregar artículo');
-    }
-}
-
-function setupPlanUploadDnD() {
-    const area = document.getElementById('plan-upload-area');
-    const input = document.getElementById('plan-file-input');
-    if (!area || !input) return;
-
-    ['dragenter','dragover','dragleave','drop'].forEach(ev =>
-        area.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }));
-    ['dragenter','dragover'].forEach(ev => area.addEventListener(ev, () => {
-        area.style.borderColor = 'var(--primary-color)';
-    }));
-    ['dragleave','drop'].forEach(ev => area.addEventListener(ev, () => {
-        area.style.borderColor = '#ddd';
-    }));
-    area.addEventListener('drop', e => {
-        if (e.dataTransfer.files.length) handlePlanFile(e.dataTransfer.files[0]);
-    });
-    input.addEventListener('change', e => {
-        if (e.target.files.length) handlePlanFile(e.target.files[0]);
-    });
-}
-
-async function handlePlanFile(file) {
-    const resultDiv = document.getElementById('plan-upload-result');
-    if (!currentPlanId) {
-        resultDiv.innerHTML = '<div class="error-message">❌ Primero abrí el detalle de una planificación</div>';
-        return;
-    }
-    if (!file.name.match(/\.(xlsx|xls)$/i)) {
-        resultDiv.innerHTML = '<div class="error-message">❌ Solo se aceptan archivos Excel .xlsx o .xls</div>';
-        return;
-    }
-    resultDiv.innerHTML = '<p>📤 Importando...</p>';
-
-    const fd = new FormData();
-    fd.append('file', file);
-
-    try {
-        const res = await fetch(`' + window.location.origin + '/api/planificacion/${currentPlanId}/items/bulk`, {
-            method: 'POST', credentials: 'include', body: fd
-        });
-        const data = await res.json();
-        if (res.ok) {
-            resultDiv.innerHTML = `<div class="success-message">
-                ✅ Importación exitosa. Insertados: ${data.insertados}
-                ${data.errores?.length ? `<br><small style="color:orange">${data.errores.join(' | ')}</small>` : ''}
-            </div>`;
-            setTimeout(() => verDetalle(currentPlanId), 1000);
-        } else {
-            resultDiv.innerHTML = `<div class="error-message">❌ ${data.error || 'Error al procesar'}</div>`;
-        }
-    } catch (e) {
-        resultDiv.innerHTML = `<div class="error-message">❌ Error de conexión: ${e.message}</div>`;
+        alert('Error al agregar artículo');
     }
 }
 
 function getEstado(plan) {
+    if (!plan.fecha_inicio || !plan.fecha_fin) return { text: 'Abierta', class: 'info' };
     const hoy = new Date();
     const inicio = new Date(plan.fecha_inicio);
     const fin = new Date(plan.fecha_fin);
@@ -416,9 +420,6 @@ function formatDate(d) {
     return new Date(d).toLocaleDateString('es-AR');
 }
 
-function showError(msg) { alert(msg); }
-function showSuccess(msg) { alert(msg); }
-
 window.planificacionModule = {
     showCreateModal,
     closeModal,
@@ -426,9 +427,6 @@ window.planificacionModule = {
     showItemsModal,
     closeItemsModal,
     addItem,
-    verDetalle,
-    showImportModal,
-    closeImportModal,
+    verNecesidades,
+    verEstructura,
 };
-
-

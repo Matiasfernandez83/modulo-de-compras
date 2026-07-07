@@ -153,6 +153,15 @@ export const OrdenesCompraAPI = {
     create: (data) => API.post('/ordenes-compra', data)
 };
 
+export const ProductosAPI = {
+    getAll: () => API.get('/productos'),
+    getById: (id) => API.get(`/productos/${id}`),
+    create: (data) => API.post('/productos', data),
+    addMaterial: (id, data) => API.post(`/productos/${id}/materiales`, data),
+    updateMaterial: (id, materialId, data) => API.put(`/productos/${id}/materiales/${materialId}`, data),
+    deleteMaterial: (id, materialId) => API.delete(`/productos/${id}/materiales/${materialId}`)
+};
+
 export const UsuariosAPI = {
     getAll: () => API.get('/usuarios'),
     create: (data) => API.post('/usuarios', data),

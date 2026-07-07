@@ -21,7 +21,12 @@ def get_planificaciones():
     """Obtener todas las planificaciones"""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM planificaciones ORDER BY fecha_creacion DESC")
+    cursor.execute("""
+        SELECT pl.*, pr.nombre as producto_nombre, pr.codigo as producto_codigo
+        FROM planificaciones pl
+        LEFT JOIN productos pr ON pl.producto_id = pr.id
+        ORDER BY pl.fecha_creacion DESC
+    """)
     planificaciones = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(planificaciones), 200
@@ -62,21 +67,174 @@ def get_planificacion_detail(plan_id):
 @planificacion_bp.route('', methods=['POST'])
 @login_required
 def create_planificacion():
-    """Crear nueva planificación"""
-    data = request.get_json()
+    """Crear nueva planificación.
+
+    Si viene producto_id + cantidad_unidades, se hace la explosión de materiales
+    (estilo MRP): cada insumo de la estructura del producto se agrega como ítem
+    con cantidad = cantidad_por_unidad × unidades a fabricar.
+    """
+    data = request.get_json() or {}
+    if not data.get('nombre'):
+        return jsonify({'error': 'El nombre es requerido'}), 400
+
+    producto_id = data.get('producto_id')
+    cantidad_unidades = float(data.get('cantidad_unidades') or 1)
+    if producto_id and cantidad_unidades <= 0:
+        return jsonify({'error': 'La cantidad de unidades debe ser mayor a 0'}), 400
+
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        INSERT INTO planificaciones (nombre, descripcion, fecha_inicio, fecha_fin, usuario_creacion_id)
-        VALUES (?, ?, ?, ?, ?)
-    """, (data['nombre'], data.get('descripcion'), data['fecha_inicio'],
-          data['fecha_fin'], get_current_user_id()))
+    if producto_id:
+        producto = cursor.execute("SELECT id, nombre FROM productos WHERE id = ? AND activo = 1",
+                                  (producto_id,)).fetchone()
+        if not producto:
+            conn.close()
+            return jsonify({'error': 'Producto no encontrado'}), 404
 
+    cursor.execute("""
+        INSERT INTO planificaciones (nombre, descripcion, fecha_inicio, fecha_fin,
+                                     producto_id, cantidad_unidades, usuario_creacion_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (data['nombre'], data.get('descripcion'), data.get('fecha_inicio'),
+          data.get('fecha_fin'), producto_id, cantidad_unidades, get_current_user_id()))
     plan_id = cursor.lastrowid
+
+    items_generados = 0
+    if producto_id:
+        # Explosión de materiales: receta × unidades a fabricar
+        cursor.execute("""
+            INSERT INTO planificacion_items (planificacion_id, articulo_id, cantidad_requerida, fecha_necesidad)
+            SELECT ?, articulo_id, cantidad_por_unidad * ?, ?
+            FROM producto_materiales WHERE producto_id = ?
+        """, (plan_id, cantidad_unidades, data.get('fecha_inicio'), producto_id))
+        items_generados = cursor.rowcount
+
     conn.commit()
     conn.close()
-    return jsonify({'id': plan_id, 'message': 'Planificación creada'}), 201
+    return jsonify({'id': plan_id, 'items_generados': items_generados,
+                    'message': 'Planificación creada'}), 201
+
+
+def _calcular_necesidades(cursor, plan_id):
+    """Necesidades de compra: requerido - stock disponible, con semáforo."""
+    cursor.execute("""
+        SELECT pi.articulo_id, SUM(pi.cantidad_requerida) as cantidad_requerida,
+               a.codigo_interno, a.codigo_softland, a.nombre, a.unidad_medida,
+               s.nombre as categoria,
+               COALESCE(st.cantidad, 0) as stock_disponible
+        FROM planificacion_items pi
+        JOIN articulos a ON pi.articulo_id = a.id
+        LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
+        LEFT JOIN stock st ON st.articulo_id = a.id
+        WHERE pi.planificacion_id = ?
+        GROUP BY pi.articulo_id
+        ORDER BY s.nombre, a.nombre
+    """, (plan_id,))
+    necesidades = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        neta = max(0, (item['cantidad_requerida'] or 0) - (item['stock_disponible'] or 0))
+        item['necesidad_neta'] = round(neta, 2)
+        if neta <= 0:
+            item['semaforo'] = 'verde'      # el stock cubre todo
+        elif item['stock_disponible'] > 0:
+            item['semaforo'] = 'amarillo'   # cubre una parte
+        else:
+            item['semaforo'] = 'rojo'       # hay que comprar todo
+        necesidades.append(item)
+    return necesidades
+
+
+@planificacion_bp.route('/<int:plan_id>/necesidades', methods=['GET'])
+@login_required
+def get_necesidades(plan_id):
+    """Cálculo de necesidades de compra de la planificación (requerido vs stock)"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    plan = cursor.execute("""
+        SELECT pl.*, pr.nombre as producto_nombre FROM planificaciones pl
+        LEFT JOIN productos pr ON pl.producto_id = pr.id WHERE pl.id = ?
+    """, (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({'error': 'Planificación no encontrada'}), 404
+
+    necesidades = _calcular_necesidades(cursor, plan_id)
+    conn.close()
+
+    total = len(necesidades)
+    a_comprar = sum(1 for n in necesidades if n['necesidad_neta'] > 0)
+    return jsonify({
+        'planificacion': dict(plan),
+        'necesidades': necesidades,
+        'resumen': {'total_articulos': total, 'a_comprar': a_comprar,
+                    'cubiertos_por_stock': total - a_comprar}
+    }), 200
+
+
+@planificacion_bp.route('/<int:plan_id>/necesidades/export', methods=['GET'])
+@login_required
+def export_necesidades(plan_id):
+    """Exportar las necesidades de compra a Excel"""
+    if not OPENPYXL_OK:
+        return jsonify({'error': 'openpyxl no instalado'}), 500
+
+    conn = get_db()
+    cursor = conn.cursor()
+    plan = cursor.execute("SELECT * FROM planificaciones WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({'error': 'Planificación no encontrada'}), 404
+    necesidades = _calcular_necesidades(cursor, plan_id)
+    conn.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Necesidades de compra"
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    center = Alignment(horizontal="center")
+
+    ws['A1'] = f"Necesidades de compra — {plan['nombre']}"
+    ws['A1'].font = Font(bold=True, size=13)
+
+    headers = ["Código", "Cód. Softland", "Artículo", "Categoría", "Unidad",
+               "Requerido", "Stock", "A Comprar", "Estado"]
+    widths = [14, 14, 55, 22, 10, 12, 12, 12, 12]
+    for i, (h, w) in enumerate(zip(headers, widths), 1):
+        cell = ws.cell(row=3, column=i, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center
+        ws.column_dimensions[cell.column_letter].width = w
+
+    colores = {'rojo': 'C62828', 'amarillo': 'F9A825', 'verde': '2E7D32'}
+    r = 4
+    for n in necesidades:
+        ws.cell(row=r, column=1, value=n['codigo_interno'])
+        ws.cell(row=r, column=2, value=n['codigo_softland'])
+        ws.cell(row=r, column=3, value=n['nombre'])
+        ws.cell(row=r, column=4, value=n['categoria'])
+        ws.cell(row=r, column=5, value=n['unidad_medida'])
+        ws.cell(row=r, column=6, value=n['cantidad_requerida'])
+        ws.cell(row=r, column=7, value=n['stock_disponible'])
+        ws.cell(row=r, column=8, value=n['necesidad_neta'])
+        estado = ws.cell(row=r, column=9, value=n['semaforo'].upper())
+        estado.font = Font(bold=True, color='FFFFFF')
+        estado.fill = PatternFill('solid', fgColor=colores[n['semaforo']])
+        estado.alignment = center
+        r += 1
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = f"A3:I{r-1}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=f"necesidades_plan_{plan_id}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @planificacion_bp.route('/<int:plan_id>/items', methods=['POST'])
 @login_required

@@ -171,7 +171,33 @@ CREATE TABLE IF NOT EXISTS lista_precios_items (
     FOREIGN KEY (articulo_id) REFERENCES articulos(id)
 );
 
--- Tabla de Planificaciones
+-- Tabla de Productos (lo que la empresa fabrica, ej: una batea)
+CREATE TABLE IF NOT EXISTS productos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    activo BOOLEAN DEFAULT 1,
+    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Estructura de Producto / Lista de Materiales (BOM):
+-- qué insumos y en qué cantidad lleva UNA unidad del producto
+CREATE TABLE IF NOT EXISTS producto_materiales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id INTEGER NOT NULL,
+    articulo_id INTEGER NOT NULL,
+    cantidad_por_unidad REAL NOT NULL,
+    seccion TEXT,
+    observaciones TEXT,
+    plano TEXT,
+    FOREIGN KEY (producto_id) REFERENCES productos(id),
+    FOREIGN KEY (articulo_id) REFERENCES articulos(id),
+    UNIQUE(producto_id, articulo_id)
+);
+CREATE INDEX IF NOT EXISTS idx_producto_materiales_prod ON producto_materiales(producto_id);
+
+-- Tabla de Planificaciones (orden de producción planificada: N unidades de un producto)
 CREATE TABLE IF NOT EXISTS planificaciones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
@@ -180,8 +206,11 @@ CREATE TABLE IF NOT EXISTS planificaciones (
     fecha_fin DATE,
     activo BOOLEAN DEFAULT 1,
     archivo_origen TEXT,
+    producto_id INTEGER,
+    cantidad_unidades REAL DEFAULT 1,
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
     usuario_creacion_id INTEGER,
+    FOREIGN KEY (producto_id) REFERENCES productos(id),
     FOREIGN KEY (usuario_creacion_id) REFERENCES usuarios(id)
 );
 

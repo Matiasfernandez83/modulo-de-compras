@@ -43,6 +43,21 @@ def init_database():
     # Migraciones livianas sobre bases existentes (CREATE TABLE IF NOT EXISTS no altera tablas)
     _ensure_column(cursor, 'categorias', 'prefijo', 'TEXT')
     _ensure_column(cursor, 'articulos', 'subcategoria_id', 'INTEGER REFERENCES subcategorias(id)')
+    _ensure_column(cursor, 'articulos', 'codigo_softland', 'TEXT')
+    _ensure_column(cursor, 'planificaciones', 'producto_id', 'INTEGER REFERENCES productos(id)')
+    _ensure_column(cursor, 'planificaciones', 'cantidad_unidades', 'REAL DEFAULT 1')
+
+    # Cargar catálogo inicial (migrado desde Softland) si la base está vacía
+    from database.seed_catalogo import seed_catalogo
+    sembrados = seed_catalogo(conn)
+    if sembrados:
+        print(f"   Catálogo inicial cargado: {sembrados} artículos")
+
+    # Cargar estructuras de producto (BOM de la batea) si no hay productos
+    from database.seed_bom import seed_bom
+    bom = seed_bom(conn)
+    if bom:
+        print(f"   Estructuras de producto cargadas: {bom} renglones de materiales")
 
     # Crear usuario admin por defecto
     from werkzeug.security import generate_password_hash

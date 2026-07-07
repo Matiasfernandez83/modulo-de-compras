@@ -37,6 +37,11 @@ function renderArticulosView() {
             <p style="padding: 8px 16px; margin:0; color:#666; font-size:0.85rem">
                 💡 <strong>Doble click</strong> en una fila para ver historial de compras y precios del artículo
             </p>
+            <div style="padding: 8px 16px;">
+                <input type="text" id="articulos-buscador" placeholder="🔍 Buscar por código, código Softland, nombre o rubro..."
+                       style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px"
+                       oninput="window.articulosModule.filtrar(this.value)">
+            </div>
             <div class="card-body">
                 <div id="articulos-table-container">
                     <div class="flex-center" style="padding: 40px;">
@@ -248,6 +253,13 @@ async function loadArticulos() {
     }
 }
 
+let filtroTexto = '';
+
+function filtrar(texto) {
+    filtroTexto = (texto || '').toLowerCase();
+    renderArticulosTable();
+}
+
 function renderArticulosTable() {
     const container = document.getElementById('articulos-table-container');
 
@@ -256,23 +268,38 @@ function renderArticulosTable() {
         return;
     }
 
+    let visibles = articulos;
+    if (filtroTexto) {
+        visibles = articulos.filter(a =>
+            `${a.codigo_interno} ${a.codigo_softland || ''} ${a.nombre || ''} ${a.descripcion || ''} ${a.categoria_nombre || ''} ${a.subcategoria_nombre || ''}`
+                .toLowerCase().includes(filtroTexto));
+    }
+    // Con catálogos grandes, renderizar de a 300 filas mantiene la página ágil
+    const LIMITE = 300;
+    const recortado = visibles.length > LIMITE;
+
     const html = `
+        <p style="margin:0 0 8px; color:#666; font-size:0.85rem">
+            Mostrando ${recortado ? LIMITE : visibles.length} de ${visibles.length} artículos${recortado ? ' — refiná la búsqueda para ver el resto' : ''}
+        </p>
         <table class="table" id="articulos-tabla">
             <thead>
                 <tr>
                     <th>Código</th>
+                    <th>Cód. Softland</th>
                     <th>Nombre</th>
-                    <th>Categoría</th>
+                    <th>Rubro / Subrubro</th>
                     <th>Unidad</th>
                     <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
-                ${articulos.map(a => `
+                ${visibles.slice(0, LIMITE).map(a => `
                     <tr data-id="${a.id}" style="cursor:pointer" title="Doble click para ver historial">
-                        <td>${a.codigo_interno}</td>
+                        <td><strong>${a.codigo_interno}</strong></td>
+                        <td>${a.codigo_softland || '-'}</td>
                         <td>${a.nombre || a.descripcion}</td>
-                        <td>${a.categoria || a.categoria_nombre || '-'}</td>
+                        <td>${a.categoria || a.categoria_nombre || '-'}${a.subcategoria_nombre ? ' / ' + a.subcategoria_nombre : ''}</td>
                         <td>${a.unidad_medida || '-'}</td>
                         <td onclick="event.stopPropagation()">
                             <button class="btn btn-sm btn-secondary"
@@ -314,8 +341,9 @@ async function verDetalleArticulo(id) {
         const datosBasicos = `
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px">
                 <div><p><strong>Código:</strong> ${art.codigo_interno}</p>
+                     <p><strong>Código Softland:</strong> ${art.codigo_softland || '-'}</p>
                      <p><strong>Nombre:</strong> ${art.nombre || art.descripcion}</p>
-                     <p><strong>Categoría:</strong> ${art.categoria || art.categoria_nombre || '-'}</p></div>
+                     <p><strong>Categoría:</strong> ${art.categoria || art.categoria_nombre || '-'}${art.subcategoria_nombre ? ' / ' + art.subcategoria_nombre : ''}</p></div>
                 <div><p><strong>Unidad:</strong> ${art.unidad_medida || '-'}</p>
                      <p><strong>Alta:</strong> ${art.fecha_creacion ? new Date(art.fecha_creacion).toLocaleDateString('es-AR') : '-'}</p></div>
             </div>`;
@@ -525,6 +553,7 @@ window.articulosModule = {
     onSubcategoriaChange,
     nuevaCategoria,
     nuevaSubcategoria,
+    filtrar,
 };
 
 

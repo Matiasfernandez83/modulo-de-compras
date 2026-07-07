@@ -49,6 +49,7 @@ def create_app():
     from routes.export import export_bp
     from routes.matching import matching_bp
     from routes.planificacion import planificacion_bp
+    from routes.productos import productos_bp
     from routes.notifications import notifications_bp
     from routes.audit import audit_bp
     
@@ -64,6 +65,7 @@ def create_app():
     app.register_blueprint(export_bp, url_prefix='/api/export')
     app.register_blueprint(matching_bp, url_prefix='/api/matching')
     app.register_blueprint(planificacion_bp, url_prefix='/api/planificacion')
+    app.register_blueprint(productos_bp, url_prefix='/api/productos')
     app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
     app.register_blueprint(audit_bp, url_prefix='/api/audit')
     
