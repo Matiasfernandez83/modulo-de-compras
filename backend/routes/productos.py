@@ -6,11 +6,19 @@ receta para calcular necesidades de compra (explosión de materiales, como el
 MRP de SAP).
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from middleware.session_auth import login_required, require_permission
 import sqlite3
+import io
 
 from database.connection import get_db
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    OPENPYXL_OK = True
+except ImportError:
+    OPENPYXL_OK = False
 
 productos_bp = Blueprint('productos', __name__)
 
@@ -150,3 +158,113 @@ def delete_material(id, material_id):
     conn.commit()
     conn.close()
     return jsonify({'message': 'Insumo quitado de la estructura'}), 200
+
+
+@productos_bp.route('/<int:id>/materiales/bulk', methods=['POST'])
+@login_required
+def import_materiales(id):
+    """Importar la receta (BOM) de un producto desde Excel.
+
+    Columnas esperadas: Código | Cantidad | Sección (opcional) | Observaciones (opcional).
+    El código matchea por código interno (TAL...) o por código Softland.
+    """
+    if not OPENPYXL_OK:
+        return jsonify({'error': 'openpyxl no instalado'}), 500
+    if 'file' not in request.files:
+        return jsonify({'error': 'No se envió archivo'}), 400
+    file = request.files['file']
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'Solo se aceptan archivos Excel (.xlsx, .xls)'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    if not cursor.execute("SELECT 1 FROM productos WHERE id = ?", (id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Producto no encontrado'}), 404
+
+    try:
+        wb = openpyxl.load_workbook(file, data_only=True)
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'No se pudo leer el Excel: {e}'}), 400
+    ws = wb.active
+
+    insertados, actualizados, errores = 0, 0, []
+    for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or row[0] is None:
+            continue
+        codigo = str(row[0]).strip()
+        cantidad = row[1] if len(row) > 1 else None
+        seccion = str(row[2]).strip() if len(row) > 2 and row[2] else None
+        obs = str(row[3]).strip() if len(row) > 3 and row[3] else None
+        try:
+            cantidad = float(str(cantidad).replace(',', '.'))
+        except (TypeError, ValueError):
+            errores.append(f'Fila {i}: cantidad inválida')
+            continue
+        if cantidad <= 0:
+            continue
+
+        art = cursor.execute(
+            "SELECT id FROM articulos WHERE codigo_interno = ? OR codigo_softland = ? LIMIT 1",
+            (codigo, codigo)
+        ).fetchone()
+        if not art:
+            errores.append(f"Fila {i}: código '{codigo}' no encontrado en el catálogo")
+            continue
+
+        existe = cursor.execute(
+            "SELECT id FROM producto_materiales WHERE producto_id = ? AND articulo_id = ?",
+            (id, art['id'])
+        ).fetchone()
+        if existe:
+            cursor.execute("""
+                UPDATE producto_materiales SET cantidad_por_unidad = ?, seccion = ?, observaciones = ?
+                WHERE id = ?
+            """, (cantidad, seccion, obs, existe['id']))
+            actualizados += 1
+        else:
+            cursor.execute("""
+                INSERT INTO producto_materiales (producto_id, articulo_id, cantidad_por_unidad, seccion, observaciones)
+                VALUES (?, ?, ?, ?, ?)
+            """, (id, art['id'], cantidad, seccion, obs))
+            insertados += 1
+
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'insertados': insertados, 'actualizados': actualizados,
+        'errores': errores[:50], 'total_errores': len(errores)
+    }), 200
+
+
+@productos_bp.route('/template', methods=['GET'])
+@login_required
+def download_template_producto():
+    """Template Excel para cargar la receta (BOM) de un producto"""
+    if not OPENPYXL_OK:
+        return jsonify({'error': 'openpyxl no instalado'}), 500
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Receta"
+    fill = PatternFill("solid", fgColor="1F4E79")
+    font = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center")
+    headers = ["Código (interno o Softland) *", "Cantidad por unidad *", "Sección", "Observaciones"]
+    widths = [30, 20, 25, 40]
+    for i, (h, w) in enumerate(zip(headers, widths), 1):
+        c = ws.cell(row=1, column=i, value=h)
+        c.fill = fill
+        c.font = font
+        c.alignment = center
+        ws.column_dimensions[c.column_letter].width = w
+    ws.append(["TALHIE001", 12, "CAÑOS Y TUBOS", "Tubo estructural"])
+    ws.append(["370", 28, "CAÑOS Y TUBOS", "Caño 60"])
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="template_receta.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

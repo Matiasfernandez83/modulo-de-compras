@@ -36,13 +36,50 @@ async function showListaView() {
         </div>
 
         <div class="card" style="margin-top:16px">
-            <div class="card-header"><h2 class="card-title">Estructuras de Producto (recetas)</h2></div>
+            <div class="card-header">
+                <h2 class="card-title">Estructuras de Producto (recetas)</h2>
+                <button class="btn btn-primary" onclick="window.planificacionModule.showProductoModal()">
+                    + Nuevo Producto
+                </button>
+            </div>
             <p style="padding:8px 16px; margin:0; color:#666; font-size:0.85rem">
                 Cada estructura define qué insumos y en qué cantidad lleva UNA unidad del producto.
+                Podés cargar la receta de un producto nuevo (batea, acoplado, etc.) e importar sus insumos desde Excel.
             </p>
             <div class="card-body">
                 <div id="productos-table-container">
                     <div class="flex-center" style="padding: 24px;"><div class="spinner"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal crear producto -->
+        <div id="producto-create-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">Nuevo Producto (receta)</h3>
+                    <button class="modal-close" onclick="document.getElementById('producto-create-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="producto-create-form">
+                        <div class="form-group">
+                            <label for="prod-codigo">Código *</label>
+                            <input type="text" id="prod-codigo" placeholder="Ej: BATEA-401, ACOPLADO-A1">
+                        </div>
+                        <div class="form-group">
+                            <label for="prod-nombre">Nombre *</label>
+                            <input type="text" id="prod-nombre" placeholder="Ej: BATEA 401 CAÑO REDONDO">
+                        </div>
+                        <div class="form-group">
+                            <label for="prod-descripcion">Descripción</label>
+                            <textarea id="prod-descripcion" rows="2"></textarea>
+                        </div>
+                    </form>
+                    <p style="color:#666; font-size:0.85rem">Después de crearlo, tocá "Ver estructura" para cargar sus insumos (a mano o importando un Excel).</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('producto-create-modal').style.display='none'">Cancelar</button>
+                    <button class="btn btn-primary" onclick="window.planificacionModule.saveProducto()">Crear Producto</button>
                 </div>
             </div>
         </div>
@@ -171,29 +208,147 @@ function renderProductosTable() {
         </table>`;
 }
 
+let currentProductoId = null;
+
 async function verEstructura(productoId) {
+    currentProductoId = productoId;
     document.getElementById('producto-modal-body').innerHTML =
         '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
     document.getElementById('producto-modal').style.display = 'flex';
     try {
         const p = await ProductosAPI.getById(productoId);
         document.getElementById('producto-modal-titulo').textContent = `${p.codigo} — ${p.nombre}`;
-        let html = `<p style="color:#666; margin-bottom:12px">Cantidades por <strong>1 unidad</strong> (${p.total_materiales} insumos)</p>`;
+
+        // Barra de acciones: importar Excel + agregar insumo a mano
+        let html = `
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #eee">
+                <a href="${window.location.origin}/api/productos/template" download class="btn btn-secondary btn-sm">📥 Template receta</a>
+                <label class="btn btn-secondary btn-sm" style="margin:0">
+                    📤 Importar receta Excel
+                    <input type="file" accept=".xlsx,.xls" style="display:none"
+                           onchange="window.planificacionModule.importarReceta(event)">
+                </label>
+                <button class="btn btn-secondary btn-sm" onclick="window.planificacionModule.showAddMaterial()">+ Agregar insumo</button>
+                <span style="flex:1"></span>
+                <span style="color:#666; font-size:0.85rem">${p.total_materiales} insumos · cantidades por 1 unidad</span>
+            </div>
+            <div id="add-material-box" style="display:none; background:#f9f9f9; padding:10px; border-radius:6px; margin-bottom:12px">
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end">
+                    <div style="flex:2; min-width:220px">
+                        <label style="font-size:0.8rem">Artículo</label>
+                        <select id="add-mat-articulo" style="width:100%"></select>
+                    </div>
+                    <div style="width:110px">
+                        <label style="font-size:0.8rem">Cantidad/unidad</label>
+                        <input type="number" id="add-mat-cant" min="0.0001" step="0.0001" style="width:100%">
+                    </div>
+                    <div style="width:150px">
+                        <label style="font-size:0.8rem">Sección</label>
+                        <input type="text" id="add-mat-seccion" style="width:100%" placeholder="opcional">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="window.planificacionModule.addMaterial()">Agregar</button>
+                </div>
+            </div>`;
+
         let seccionActual = null;
-        html += '<div class="table-responsive"><table class="table"><thead><tr><th>Código</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Plano</th></tr></thead><tbody>';
+        html += '<div class="table-responsive"><table class="table"><thead><tr><th>Código</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Plano</th><th></th></tr></thead><tbody>';
+        if (!p.materiales.length) {
+            html += '<tr><td colspan="6" class="text-muted" style="text-align:center; padding:20px">Sin insumos. Importá un Excel o agregalos a mano.</td></tr>';
+        }
         for (const m of p.materiales) {
             if (m.seccion && m.seccion !== seccionActual) {
                 seccionActual = m.seccion;
-                html += `<tr><td colspan="5" style="background:#f0f4f8; font-weight:bold">${seccionActual}</td></tr>`;
+                html += `<tr><td colspan="6" style="background:#f0f4f8; font-weight:bold">${seccionActual}</td></tr>`;
             }
             html += `<tr><td>${m.codigo_interno}</td><td title="${m.observaciones || ''}">${m.articulo_nombre}</td>
                 <td><strong>${m.cantidad_por_unidad}</strong></td><td>${m.unidad_medida || '-'}</td>
-                <td style="font-size:0.8rem; color:#666">${m.plano || '-'}</td></tr>`;
+                <td style="font-size:0.8rem; color:#666">${m.plano || '-'}</td>
+                <td><button class="btn btn-sm btn-secondary" style="background:#c62828;color:#fff"
+                            onclick="window.planificacionModule.quitarMaterial(${m.id})" title="Quitar">🗑</button></td></tr>`;
         }
         html += '</tbody></table></div>';
         document.getElementById('producto-modal-body').innerHTML = html;
     } catch (e) {
         document.getElementById('producto-modal-body').innerHTML = '<p class="error-message">Error al cargar la estructura</p>';
+    }
+}
+
+function showProductoModal() {
+    document.getElementById('producto-create-form').reset();
+    document.getElementById('producto-create-modal').style.display = 'flex';
+}
+
+async function saveProducto() {
+    const data = {
+        codigo: document.getElementById('prod-codigo').value.trim(),
+        nombre: document.getElementById('prod-nombre').value.trim(),
+        descripcion: document.getElementById('prod-descripcion').value.trim(),
+    };
+    if (!data.codigo || !data.nombre) { alert('Código y nombre son obligatorios'); return; }
+    try {
+        const r = await ProductosAPI.create(data);
+        document.getElementById('producto-create-modal').style.display = 'none';
+        await loadProductos();
+        verEstructura(r.id); // abrir la estructura recién creada para cargar insumos
+    } catch (e) {
+        alert('Error al crear el producto: ' + e.message);
+    }
+}
+
+function showAddMaterial() {
+    const box = document.getElementById('add-material-box');
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    const sel = document.getElementById('add-mat-articulo');
+    if (sel && !sel.options.length) {
+        sel.innerHTML = '<option value="">Seleccione...</option>' +
+            articulos.map(a => `<option value="${a.id}">${a.codigo_interno} — ${a.nombre || a.descripcion}</option>`).join('');
+    }
+}
+
+async function addMaterial() {
+    const articulo_id = document.getElementById('add-mat-articulo').value;
+    const cantidad = document.getElementById('add-mat-cant').value;
+    const seccion = document.getElementById('add-mat-seccion').value.trim();
+    if (!articulo_id || !cantidad) { alert('Elegí un artículo y la cantidad'); return; }
+    try {
+        await ProductosAPI.addMaterial(currentProductoId, {
+            articulo_id: Number(articulo_id), cantidad_por_unidad: Number(cantidad), seccion: seccion || null
+        });
+        await verEstructura(currentProductoId);
+        loadProductos();
+    } catch (e) {
+        alert('Error al agregar insumo: ' + e.message);
+    }
+}
+
+async function quitarMaterial(materialId) {
+    if (!confirm('¿Quitar este insumo de la receta?')) return;
+    try {
+        await ProductosAPI.deleteMaterial(currentProductoId, materialId);
+        await verEstructura(currentProductoId);
+        loadProductos();
+    } catch (e) {
+        alert('Error al quitar el insumo: ' + e.message);
+    }
+}
+
+async function importarReceta(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    document.getElementById('producto-modal-body').insertAdjacentHTML('afterbegin',
+        '<p id="import-msg" style="color:#666">📤 Importando receta...</p>');
+    try {
+        const r = await ProductosAPI.importMateriales(currentProductoId, fd);
+        let msg = `✅ Importado: ${r.insertados} nuevos, ${r.actualizados} actualizados.`;
+        if (r.total_errores) msg += ` ⚠️ ${r.total_errores} con error (ej: ${(r.errores[0] || '')}).`;
+        alert(msg);
+        await verEstructura(currentProductoId);
+        loadProductos();
+    } catch (e) {
+        alert('Error al importar la receta: ' + e.message);
+        const m = document.getElementById('import-msg'); if (m) m.remove();
     }
 }
 
@@ -510,4 +665,6 @@ window.planificacionModule = {
     verNecesidades, verEstructura, volver,
     eliminarPlanificacion, filtrarNecesidades,
     showCategoriasModal, toggleTodasCategorias, generarComparativa,
+    showProductoModal, saveProducto,
+    showAddMaterial, addMaterial, quitarMaterial, importarReceta,
 };
