@@ -174,6 +174,27 @@ def get_necesidades(plan_id):
     }), 200
 
 
+@planificacion_bp.route('/<int:plan_id>', methods=['DELETE'])
+@login_required
+def delete_planificacion(plan_id):
+    """Eliminar una planificación con sus ítems.
+
+    Las comparativas generadas desde ella se conservan (se les quita el vínculo).
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    if not cursor.execute("SELECT 1 FROM planificaciones WHERE id = ?", (plan_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Planificación no encontrada'}), 404
+
+    cursor.execute("UPDATE competencias SET planificacion_id = NULL WHERE planificacion_id = ?", (plan_id,))
+    cursor.execute("DELETE FROM planificacion_items WHERE planificacion_id = ?", (plan_id,))
+    cursor.execute("DELETE FROM planificaciones WHERE id = ?", (plan_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Planificación eliminada'}), 200
+
+
 @planificacion_bp.route('/<int:plan_id>/categorias', methods=['GET'])
 @login_required
 def get_categorias_plan(plan_id):
