@@ -128,7 +128,8 @@ def _calcular_necesidades(cursor, plan_id):
         LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
         LEFT JOIN stock st ON st.articulo_id = a.id
         WHERE pi.planificacion_id = ?
-        GROUP BY pi.articulo_id
+        GROUP BY pi.articulo_id, a.codigo_interno, a.codigo_softland, a.nombre,
+                 a.unidad_medida, s.nombre, st.cantidad
         ORDER BY s.nombre, a.nombre
     """, (plan_id,))
     necesidades = []
@@ -265,7 +266,7 @@ def generar_competencia(plan_id):
         JOIN articulos a ON pi.articulo_id = a.id
         LEFT JOIN stock st ON st.articulo_id = a.id
         WHERE pi.planificacion_id = ? AND a.subcategoria_id IN ({placeholders})
-        GROUP BY pi.articulo_id
+        GROUP BY pi.articulo_id, st.cantidad
     """, (plan_id, *subcategoria_ids))
     items = cursor.fetchall()
     if not items:

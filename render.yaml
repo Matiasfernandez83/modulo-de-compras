@@ -10,14 +10,8 @@ services:
         generateValue: true
       - key: FLASK_ENV
         value: production
-    # IMPORTANTE: el filesystem de Render es efímero — sin disco persistente,
-    # la base SQLite se borra en cada deploy/reinicio y se pierden los datos.
-    # Para persistir: descomentar el bloque disk (requiere plan pago) y la
-    # variable DATABASE_PATH. Alternativa recomendada a largo plazo: migrar
-    # a PostgreSQL gestionado (Render Postgres, Supabase o Neon).
-    #   - key: DATABASE_PATH
-    #     value: /var/data/gestion_compras.db
-    # disk:
-    #   name: datos-sqlite
-    #   mountPath: /var/data
-    #   sizeGB: 1
+      # Persistencia de datos con PostgreSQL (recomendado).
+      # Pegá acá la connection string de tu base (Supabase / Neon / Render Postgres).
+      # Mientras DATABASE_URL no esté seteada, la app usa SQLite (efímero en Render).
+      - key: DATABASE_URL
+        sync: false

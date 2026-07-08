@@ -7,7 +7,7 @@ usuarios_bp = Blueprint('usuarios', __name__)
 
 import os
 
-from database.connection import get_db
+from database.connection import get_db, IntegrityError
 
 @usuarios_bp.route('', methods=['GET'])
 @login_required
@@ -58,7 +58,7 @@ def create_usuario():
         conn.close()
         
         return jsonify({'id': usuario_id, 'message': 'Usuario creado exitosamente'}), 201
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         conn.close()
         return jsonify({'error': 'El usuario o email ya existe'}), 400
 

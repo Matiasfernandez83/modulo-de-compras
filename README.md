@@ -193,14 +193,24 @@ python -m pytest tests/ -v
 ⚠️ El filesystem de Render es **efímero**: sin configuración extra, el archivo
 SQLite se borra en cada deploy o reinicio y se pierden todos los datos.
 
-Opciones (ver comentarios en `render.yaml`):
+### PostgreSQL (recomendado)
 
-1. **Disco persistente de Render** (plan pago): montar un disco en `/var/data`
-   y setear `DATABASE_PATH=/var/data/gestion_compras.db`. La app ya soporta
-   la variable de entorno `DATABASE_PATH`.
-2. **Migrar a PostgreSQL** (recomendado a largo plazo): Render Postgres,
-   Supabase o Neon. Todo el acceso a datos pasa por
-   `backend/database/connection.py`, lo que simplifica la migración.
+La app soporta **PostgreSQL** de forma nativa: si existe la variable de entorno
+`DATABASE_URL` (`postgresql://usuario:pass@host:5432/basedatos`), la usa; si no,
+cae en SQLite local. No hay que cambiar código: `backend/database/connection.py`
+traduce automáticamente entre ambos motores.
+
+Para producción con datos persistentes (gratis):
+
+1. Crear una base PostgreSQL en **Supabase**, **Neon** o **Render Postgres**.
+2. Copiar la connection string (`postgresql://...`).
+3. En Render → Environment, setear `DATABASE_URL` con ese valor.
+4. Redeploy: al arrancar, la app crea las tablas y carga el catálogo inicial.
+
+Los datos quedan en PostgreSQL y **ya no se pierden** en cada deploy.
+
+Alternativa: **disco persistente de Render** (plan pago) montando un disco y
+seteando `DATABASE_PATH=/var/data/gestion_compras.db` (mantiene SQLite).
 
 ---
 

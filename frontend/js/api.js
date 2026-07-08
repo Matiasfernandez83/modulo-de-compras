@@ -161,7 +161,8 @@ export const ProductosAPI = {
     create: (data) => API.post('/productos', data),
     addMaterial: (id, data) => API.post(`/productos/${id}/materiales`, data),
     updateMaterial: (id, materialId, data) => API.put(`/productos/${id}/materiales/${materialId}`, data),
-    deleteMaterial: (id, materialId) => API.delete(`/productos/${id}/materiales/${materialId}`)
+    deleteMaterial: (id, materialId) => API.delete(`/productos/${id}/materiales/${materialId}`),
+    importMateriales: (id, formData) => API.upload(`/productos/${id}/materiales/bulk`, formData)
 };
 
 export const UsuariosAPI = {

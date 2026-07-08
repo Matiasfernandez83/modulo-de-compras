@@ -128,8 +128,9 @@ def test_articulos_paginacion(admin_client):
 
 def test_foreign_keys_activas():
     """La conexión central debe rechazar inserts que violan claves foráneas."""
-    from database.connection import get_db
+    from database.connection import get_db, IntegrityError
     conn = get_db()
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError):
         conn.execute('INSERT INTO stock (articulo_id, cantidad) VALUES (999999, 1)')
+    conn.rollback()
     conn.close()
