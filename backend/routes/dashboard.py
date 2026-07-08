@@ -120,12 +120,15 @@ def get_monthly_orders():
             'nombre': fecha.strftime('%B %Y')
         })
     
+    from database.connection import IS_POSTGRES
+    # Comparación de año-mes portable entre SQLite (strftime) y PostgreSQL (to_char)
+    expr_mes = "to_char(fecha_emision, 'YYYY-MM')" if IS_POSTGRES else "strftime('%Y-%m', fecha_emision)"
     data = []
     for mes_info in meses:
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT COUNT(*) as total
             FROM comprobantes
-            WHERE tipo = 'orden_compra' AND strftime('%Y-%m', fecha_emision) = ?
+            WHERE tipo = 'orden_compra' AND {expr_mes} = ?
         """, (mes_info['mes'],))
         total = cursor.fetchone()['total']
         data.append({

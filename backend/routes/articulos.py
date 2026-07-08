@@ -7,7 +7,7 @@ articulos_bp = Blueprint('articulos', __name__)
 
 import os
 
-from database.connection import get_db
+from database.connection import get_db, IntegrityError
 
 
 def _derivar_prefijo(nombre):
@@ -59,8 +59,8 @@ def get_articulos():
     conn = get_db()
     cursor = conn.cursor()
 
-    categoria_id = request.args.get('categoria_id')
-    activo = request.args.get('activo', '1')
+    categoria_id = request.args.get('categoria_id', type=int)
+    activo = request.args.get('activo', 1, type=int)
     # Paginación opcional: sin ?page= se devuelve la lista completa (compatible con el frontend actual)
     page = request.args.get('page', type=int)
     per_page = min(request.args.get('per_page', 50, type=int), 200)
@@ -162,11 +162,13 @@ def create_articulo():
                 data.get('unidad_medida')
             ))
             break
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             if codigo_manual:
                 conn.close()
                 return jsonify({'error': 'El código interno ya existe'}), 400
-            # código generado ya usado por otro usuario: recalcular
+            # código generado ya usado por otro usuario: rollback (necesario en
+            # PostgreSQL para poder seguir usando la conexión) y recalcular
+            conn.rollback()
     else:
         conn.close()
         return jsonify({'error': 'No se pudo generar un código único, reintentá'}), 500
@@ -329,7 +331,7 @@ def create_subcategoria():
         cursor.execute("""
             INSERT INTO subcategorias (categoria_id, nombre, prefijo) VALUES (?, ?, ?)
         """, (data.get('categoria_id'), data.get('nombre'), prefijo))
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         conn.close()
         return jsonify({'error': 'Ya existe esa subcategoría en la categoría, o la categoría no existe'}), 400
 

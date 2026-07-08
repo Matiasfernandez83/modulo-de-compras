@@ -16,7 +16,7 @@ def get_proveedores():
     conn = get_db()
     cursor = conn.cursor()
 
-    activo = request.args.get('activo', '1')
+    activo = request.args.get('activo', 1, type=int)
     # Paginación opcional: sin ?page= se devuelve la lista completa (compatible con el frontend actual)
     page = request.args.get('page', type=int)
     per_page = min(request.args.get('per_page', 50, type=int), 200)

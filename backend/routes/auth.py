@@ -99,12 +99,26 @@ def logout():
     if sesion_id and user_id:
         conn = get_db()
         cursor = conn.cursor()
+        ahora = datetime.now()
+        # La duración se calcula en Python para ser portable entre SQLite y PostgreSQL
+        row = cursor.execute(
+            "SELECT fecha_inicio FROM sesiones_usuario WHERE id = ? AND usuario_id = ?",
+            (sesion_id, user_id)
+        ).fetchone()
+        duracion = None
+        if row and row['fecha_inicio']:
+            inicio = row['fecha_inicio']
+            if isinstance(inicio, str):
+                try:
+                    inicio = datetime.fromisoformat(inicio)
+                except ValueError:
+                    inicio = None
+            if inicio:
+                duracion = int((ahora - inicio).total_seconds() // 60)
         cursor.execute("""
-            UPDATE sesiones_usuario
-            SET fecha_fin = ?,
-                duracion_minutos = CAST((julianday(?) - julianday(fecha_inicio)) * 24 * 60 AS INTEGER)
+            UPDATE sesiones_usuario SET fecha_fin = ?, duracion_minutos = ?
             WHERE id = ? AND usuario_id = ?
-        """, (datetime.now(), datetime.now(), sesion_id, user_id))
+        """, (ahora, duracion, sesion_id, user_id))
         conn.commit()
         conn.close()
 

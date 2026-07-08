@@ -14,7 +14,7 @@ ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'pdf'}  # Excel y PDF
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-from database.connection import get_db
+from database.connection import get_db, IntegrityError
 
 @upload_bp.route('/articulos', methods=['POST'])
 @login_required
@@ -83,7 +83,7 @@ def upload_articulos():
                 
                 insertados += 1
                 
-            except sqlite3.IntegrityError as e:
+            except IntegrityError as e:
                 errores.append(f"Código {articulo['codigo_interno']}: Ya existe")
             except Exception as e:
                 errores.append(f"Código {articulo['codigo_interno']}: {str(e)}")

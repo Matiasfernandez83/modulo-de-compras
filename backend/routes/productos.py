@@ -11,7 +11,7 @@ from middleware.session_auth import login_required, require_permission
 import sqlite3
 import io
 
-from database.connection import get_db
+from database.connection import get_db, IntegrityError
 
 try:
     import openpyxl
@@ -56,7 +56,7 @@ def create_producto():
     try:
         cursor.execute("INSERT INTO productos (codigo, nombre, descripcion) VALUES (?, ?, ?)",
                        (data['codigo'].strip().upper(), data['nombre'], data.get('descripcion')))
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         conn.close()
         return jsonify({'error': 'Ya existe un producto con ese código'}), 400
     producto_id = cursor.lastrowid
@@ -114,7 +114,7 @@ def add_material(id):
             VALUES (?, ?, ?, ?, ?)
         """, (id, data['articulo_id'], data['cantidad_por_unidad'],
               data.get('seccion'), data.get('observaciones')))
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         conn.close()
         return jsonify({'error': 'Ese artículo ya está en la estructura (editalo en lugar de agregarlo), o el producto no existe'}), 400
     conn.commit()
