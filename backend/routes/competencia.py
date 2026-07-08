@@ -144,6 +144,84 @@ def create_competencia():
     
     return jsonify({'id': competencia_id, 'message': 'Competencia creada exitosamente'}), 201
 
+@competencia_bp.route('/<int:id>/matriz', methods=['GET'])
+@login_required
+def get_matriz_comparacion(id):
+    """Matriz de comparación: cada insumo × cada proveedor con su precio.
+
+    Para cada ítem de la competencia busca el precio de cada proveedor
+    participante (último precio vigente de sus listas) y marca el más barato.
+    Es la vista de comparativa propiamente dicha.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    comp = cursor.execute("SELECT id, nombre FROM competencias WHERE id = ?", (id,)).fetchone()
+    if not comp:
+        conn.close()
+        return jsonify({'error': 'Competencia no encontrada'}), 404
+
+    proveedores = [dict(row) for row in cursor.execute("""
+        SELECT cp.proveedor_id, p.nombre, p.plazo_pago, p.tiempo_entrega
+        FROM competencia_proveedores cp
+        JOIN proveedores p ON cp.proveedor_id = p.id
+        WHERE cp.competencia_id = ?
+        ORDER BY p.nombre
+    """, (id,)).fetchall()]
+
+    items_raw = cursor.execute("""
+        SELECT ci.articulo_id, ci.cantidad_necesaria, ci.compra_sugerida,
+               a.codigo_interno, a.nombre, a.unidad_medida, s.nombre as categoria
+        FROM competencia_items ci
+        JOIN articulos a ON ci.articulo_id = a.id
+        LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
+        WHERE ci.competencia_id = ?
+        ORDER BY s.nombre, a.nombre
+    """, (id,)).fetchall()
+
+    # Precio de cada artículo por cada proveedor participante (último precio vigente)
+    precios = {}  # (articulo_id, proveedor_id) -> precio_neto
+    if proveedores and items_raw:
+        art_ids = [it['articulo_id'] for it in items_raw]
+        prov_ids = [p['proveedor_id'] for p in proveedores]
+        art_ph = ','.join('?' * len(art_ids))
+        prov_ph = ','.join('?' * len(prov_ids))
+        for row in cursor.execute(f"""
+            SELECT lpi.articulo_id, lp.proveedor_id,
+                   lpi.precio_neto, lp.fecha_vigencia
+            FROM lista_precios_items lpi
+            JOIN listas_precios lp ON lpi.lista_precio_id = lp.id AND lp.activo = 1
+            WHERE lpi.articulo_id IN ({art_ph}) AND lp.proveedor_id IN ({prov_ph})
+              AND lpi.precio_neto IS NOT NULL
+            ORDER BY lp.fecha_vigencia ASC
+        """, (*art_ids, *prov_ids)).fetchall():
+            # ASC + sobreescritura deja el precio de la lista más reciente
+            precios[(row['articulo_id'], row['proveedor_id'])] = row['precio_neto']
+
+    items = []
+    for it in items_raw:
+        fila = dict(it)
+        fila_precios = {}
+        validos = []
+        for p in proveedores:
+            precio = precios.get((it['articulo_id'], p['proveedor_id']))
+            fila_precios[p['proveedor_id']] = precio
+            if precio is not None:
+                validos.append((p['proveedor_id'], precio))
+        mejor = min(validos, key=lambda x: x[1])[0] if validos else None
+        fila['precios'] = fila_precios
+        fila['mejor_proveedor_id'] = mejor
+        items.append(fila)
+
+    conn.close()
+    return jsonify({
+        'competencia': dict(comp),
+        'proveedores': proveedores,
+        'items': items,
+        'sin_precios': not any(any(v is not None for v in it['precios'].values()) for it in items)
+    }), 200
+
+
 @competencia_bp.route('/<int:id>/confirmar', methods=['PUT'])
 @require_permission('competencia', 'editar')
 def confirmar_competencia(id):

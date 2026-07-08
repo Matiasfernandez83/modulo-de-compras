@@ -60,9 +60,37 @@ function renderPlanificacionView() {
                     <div class="flex-center"><div class="spinner"></div></div>
                 </div>
                 <div class="modal-footer" style="gap:8px; flex-wrap:wrap">
+                    <button class="btn btn-primary" onclick="window.planificacionModule.showCategoriasModal()">🔀 Generar Comparativa</button>
                     <a id="plan-export-link" class="btn btn-secondary" href="#" download>📥 Exportar a Excel</a>
                     <button class="btn btn-secondary" onclick="window.planificacionModule.showItemsModal()">+ Agregar Artículo</button>
                     <button class="btn btn-secondary" onclick="document.getElementById('plan-detalle-modal').style.display='none'">Cerrar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal selección de categorías para comparativa -->
+        <div id="comparativa-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">Generar Comparativa por Categorías</h3>
+                    <button class="modal-close" onclick="document.getElementById('comparativa-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="color:#666; font-size:0.9rem">
+                        Elegí las categorías/rubros para comparar. El sistema arma la competencia con
+                        esos insumos y trae los proveedores que los proveen.
+                    </p>
+                    <div class="form-group">
+                        <label for="comparativa-nombre">Nombre de la comparativa</label>
+                        <input type="text" id="comparativa-nombre" placeholder="(se genera automáticamente)">
+                    </div>
+                    <div id="comparativa-categorias" style="max-height:320px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:10px">
+                        <div class="flex-center"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('comparativa-modal').style.display='none'">Cancelar</button>
+                    <button class="btn btn-primary" onclick="window.planificacionModule.generarComparativa()">Generar Comparativa</button>
                 </div>
             </div>
         </div>
@@ -405,6 +433,61 @@ async function addItem() {
     }
 }
 
+async function showCategoriasModal() {
+    if (!currentPlanId) { alert('No hay planificación seleccionada'); return; }
+    document.getElementById('comparativa-nombre').value = '';
+    const cont = document.getElementById('comparativa-categorias');
+    cont.innerHTML = '<div class="flex-center"><div class="spinner"></div></div>';
+    document.getElementById('comparativa-modal').style.display = 'flex';
+
+    try {
+        const cats = await API.get(`/planificacion/${currentPlanId}/categorias`);
+        if (!cats.length) {
+            cont.innerHTML = '<p class="text-muted">La planificación no tiene ítems.</p>';
+            return;
+        }
+        cont.innerHTML = `
+            <label style="display:block; margin-bottom:8px; font-weight:600">
+                <input type="checkbox" id="cat-todas" onchange="window.planificacionModule.toggleTodasCategorias(this)"> Seleccionar todas
+            </label>
+            <hr style="margin:8px 0">
+            ${cats.map(c => `
+                <label style="display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer">
+                    <input type="checkbox" class="cat-check" value="${c.subcategoria_id || ''}">
+                    <span style="flex:1">${c.categoria || 'Sin categoría'}</span>
+                    <span style="color:#666; font-size:0.8rem">${c.articulos} insumos · ${c.proveedores} prov.</span>
+                </label>
+            `).join('')}`;
+    } catch (e) {
+        cont.innerHTML = '<p class="error-message">Error al cargar las categorías</p>';
+    }
+}
+
+function toggleTodasCategorias(master) {
+    document.querySelectorAll('.cat-check').forEach(cb => { cb.checked = master.checked; });
+}
+
+async function generarComparativa() {
+    const ids = Array.from(document.querySelectorAll('.cat-check:checked'))
+        .map(cb => cb.value).filter(v => v);
+    if (!ids.length) { alert('Elegí al menos una categoría'); return; }
+
+    try {
+        const r = await API.post(`/planificacion/${currentPlanId}/generar-competencia`, {
+            subcategoria_ids: ids.map(Number),
+            nombre: document.getElementById('comparativa-nombre').value || null,
+        });
+        document.getElementById('comparativa-modal').style.display = 'none';
+        document.getElementById('plan-detalle-modal').style.display = 'none';
+        alert(`Comparativa generada: ${r.items} insumos y ${r.proveedores} proveedores.\n` +
+              (r.proveedores === 0
+                ? 'Nota: todavía no hay listas de precios cargadas, así que no se vincularon proveedores.'
+                : 'Andá al módulo Competencia para ver la comparación de precios.'));
+    } catch (e) {
+        alert('Error al generar la comparativa: ' + e.message);
+    }
+}
+
 function getEstado(plan) {
     if (!plan.fecha_inicio || !plan.fecha_fin) return { text: 'Abierta', class: 'info' };
     const hoy = new Date();
@@ -429,4 +512,7 @@ window.planificacionModule = {
     addItem,
     verNecesidades,
     verEstructura,
+    showCategoriasModal,
+    toggleTodasCategorias,
+    generarComparativa,
 };
