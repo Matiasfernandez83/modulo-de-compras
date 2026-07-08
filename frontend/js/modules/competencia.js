@@ -235,34 +235,65 @@ async function saveCompetencia() {
 
 async function viewCompetencia(id) {
     currentCompetenciaId = id;
-    
+
+    let competencia;
     try {
-        const competencia = await CompetenciaAPI.getById(id);
-        
-        document.getElementById('detail-modal-title').textContent = competencia.nombre;
-        document.getElementById('competencia-detail-modal').style.display = 'flex';
-        
-        // Configurar navegación de tabs
-        const tabBtns = document.querySelectorAll('#competencia-tabs .tab-btn');
-        tabBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                tabBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                renderTabContent(btn.dataset.tab, competencia);
-            });
-        });
-        
-        // Mostrar tab inicial
-        renderTabContent('resumen', competencia);
+        competencia = await CompetenciaAPI.getById(id);
     } catch (error) {
-        console.error('Error loading competencia:', error);
         alert('Error al cargar competencia');
+        return;
     }
+
+    // Hoja de trabajo a pantalla completa (reemplaza el contenido del módulo)
+    const contentArea = document.getElementById('content-area');
+    const tabs = ['resumen', 'proveedores', 'articulos', 'comparacion', 'condiciones',
+                  'categorias', 'mejores', 'totales', 'observaciones', 'historial',
+                  'documentos', 'acciones'];
+    const labels = {
+        resumen: 'Resumen', proveedores: 'Proveedores', articulos: 'Artículos',
+        comparacion: 'Comparación', condiciones: 'Condiciones', categorias: 'Por Categoría',
+        mejores: 'Mejores Precios', totales: 'Totales', observaciones: 'Observaciones',
+        historial: 'Historial', documentos: 'Documentos', acciones: 'Acciones'
+    };
+    contentArea.innerHTML = `
+        <div class="card">
+            <div class="card-header" style="flex-wrap:wrap; gap:8px">
+                <div style="display:flex; align-items:center; gap:12px">
+                    <button class="btn btn-secondary" onclick="window.competenciaModule.volver()">← Volver</button>
+                    <h2 class="card-title" style="margin:0">${competencia.nombre}</h2>
+                    <span class="badge badge-${getEstadoClass(competencia.estado)}">${competencia.estado || 'borrador'}</span>
+                </div>
+            </div>
+            <div class="tabs-container">
+                <div class="tabs-nav" id="competencia-tabs" style="display:flex; flex-wrap:wrap; gap:4px; padding:8px 16px; border-bottom:1px solid #eee">
+                    ${tabs.map((t, i) => `<button class="tab-btn${i === 3 ? ' active' : ''}" data-tab="${t}">${labels[t]}</button>`).join('')}
+                </div>
+                <div class="tabs-content" id="competencia-tabs-content" style="padding:16px"></div>
+            </div>
+        </div>`;
+
+    const tabBtns = contentArea.querySelectorAll('#competencia-tabs .tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderTabContent(btn.dataset.tab, competencia);
+        });
+    });
+
+    // Arranca en la matriz de Comparación (la hoja de trabajo principal)
+    renderTabContent('comparacion', competencia);
+}
+
+function volver() {
+    currentCompetenciaId = null;
+    matrizData = null;
+    renderCompetenciaView();
+    loadCompetencias();
 }
 
 function closeDetailModal() {
-    document.getElementById('competencia-detail-modal').style.display = 'none';
-    currentCompetenciaId = null;
+    volver();
 }
 
 function renderTabContent(tab, competencia) {
@@ -755,7 +786,8 @@ window.competenciaModule = {
     generarOrdenCompra,
     editReq,
     editCelda,
-    guardarMatriz
+    guardarMatriz,
+    volver
 };
 
 

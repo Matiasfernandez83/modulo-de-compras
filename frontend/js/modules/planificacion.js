@@ -1,20 +1,20 @@
-// Módulo de planificación estilo MRP: estructuras de producto (BOM),
-// explosión de materiales y cálculo de necesidades de compra contra stock.
+// Módulo de planificación (MRP): lista + hoja de trabajo de necesidades a
+// pantalla completa, explosión de materiales y generación de comparativa.
 import { API, ArticulosAPI, ProductosAPI } from '../api.js';
 
 let planificaciones = [];
 let productos = [];
 let articulos = [];
 let currentPlanId = null;
-let currentProductoId = null;
+let necesidadesActuales = [];
 
 export async function initPlanificacion() {
-    renderPlanificacionView();
-    await Promise.all([loadPlanificaciones(), loadProductos()]);
-    loadArticulos();
+    showListaView();
 }
 
-function renderPlanificacionView() {
+// ---------- Vista LISTA ----------
+async function showListaView() {
+    currentPlanId = null;
     const contentArea = document.getElementById('content-area');
     contentArea.innerHTML = `
         <div class="card">
@@ -36,61 +36,13 @@ function renderPlanificacionView() {
         </div>
 
         <div class="card" style="margin-top:16px">
-            <div class="card-header">
-                <h2 class="card-title">Estructuras de Producto (recetas)</h2>
-            </div>
+            <div class="card-header"><h2 class="card-title">Estructuras de Producto (recetas)</h2></div>
             <p style="padding:8px 16px; margin:0; color:#666; font-size:0.85rem">
                 Cada estructura define qué insumos y en qué cantidad lleva UNA unidad del producto.
             </p>
             <div class="card-body">
                 <div id="productos-table-container">
                     <div class="flex-center" style="padding: 24px;"><div class="spinner"></div></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal necesidades de compra -->
-        <div id="plan-detalle-modal" class="modal-overlay" style="display:none">
-            <div class="modal modal-lg">
-                <div class="modal-header">
-                    <h3 class="modal-title" id="plan-detalle-titulo">Necesidades de Compra</h3>
-                    <button class="modal-close" onclick="document.getElementById('plan-detalle-modal').style.display='none'">&times;</button>
-                </div>
-                <div class="modal-body" id="plan-detalle-body">
-                    <div class="flex-center"><div class="spinner"></div></div>
-                </div>
-                <div class="modal-footer" style="gap:8px; flex-wrap:wrap">
-                    <button class="btn btn-primary" onclick="window.planificacionModule.showCategoriasModal()">🔀 Generar Comparativa</button>
-                    <a id="plan-export-link" class="btn btn-secondary" href="#" download>📥 Exportar a Excel</a>
-                    <button class="btn btn-secondary" onclick="window.planificacionModule.showItemsModal()">+ Agregar Artículo</button>
-                    <button class="btn btn-secondary" onclick="document.getElementById('plan-detalle-modal').style.display='none'">Cerrar</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal selección de categorías para comparativa -->
-        <div id="comparativa-modal" class="modal-overlay" style="display:none">
-            <div class="modal">
-                <div class="modal-header">
-                    <h3 class="modal-title">Generar Comparativa por Categorías</h3>
-                    <button class="modal-close" onclick="document.getElementById('comparativa-modal').style.display='none'">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <p style="color:#666; font-size:0.9rem">
-                        Elegí las categorías/rubros para comparar. El sistema arma la competencia con
-                        esos insumos y trae los proveedores que los proveen.
-                    </p>
-                    <div class="form-group">
-                        <label for="comparativa-nombre">Nombre de la comparativa</label>
-                        <input type="text" id="comparativa-nombre" placeholder="(se genera automáticamente)">
-                    </div>
-                    <div id="comparativa-categorias" style="max-height:320px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:10px">
-                        <div class="flex-center"><div class="spinner"></div></div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="document.getElementById('comparativa-modal').style.display='none'">Cancelar</button>
-                    <button class="btn btn-primary" onclick="window.planificacionModule.generarComparativa()">Generar Comparativa</button>
                 </div>
             </div>
         </div>
@@ -102,9 +54,7 @@ function renderPlanificacionView() {
                     <h3 class="modal-title" id="producto-modal-titulo">Estructura de Producto</h3>
                     <button class="modal-close" onclick="document.getElementById('producto-modal').style.display='none'">&times;</button>
                 </div>
-                <div class="modal-body" id="producto-modal-body">
-                    <div class="flex-center"><div class="spinner"></div></div>
-                </div>
+                <div class="modal-body" id="producto-modal-body"><div class="flex-center"><div class="spinner"></div></div></div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="document.getElementById('producto-modal').style.display='none'">Cerrar</button>
                 </div>
@@ -157,35 +107,9 @@ function renderPlanificacionView() {
                 </div>
             </div>
         </div>
-
-        <!-- Modal agregar artículo suelto -->
-        <div id="items-modal" class="modal-overlay" style="display: none;">
-            <div class="modal">
-                <div class="modal-header">
-                    <h3 class="modal-title">Agregar Artículo a Planificación</h3>
-                    <button class="modal-close" onclick="window.planificacionModule.closeItemsModal()">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <form id="items-form">
-                        <div class="form-group">
-                            <label for="articulo_id">Artículo *</label>
-                            <select id="articulo_id" name="articulo_id" required>
-                                <option value="">Seleccione un artículo...</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="cantidad_estimada">Cantidad *</label>
-                            <input type="number" id="cantidad_estimada" name="cantidad_estimada" min="0.01" step="0.01" required>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="window.planificacionModule.closeItemsModal()">Cancelar</button>
-                    <button class="btn btn-primary" onclick="window.planificacionModule.addItem()">Agregar</button>
-                </div>
-            </div>
-        </div>
     `;
+    await Promise.all([loadPlanificaciones(), loadProductos()]);
+    loadArticulos();
 }
 
 async function loadPlanificaciones() {
@@ -193,8 +117,8 @@ async function loadPlanificaciones() {
         planificaciones = await API.get('/planificacion');
         renderPlanificacionesTable();
     } catch (error) {
-        document.getElementById('planificaciones-table-container').innerHTML =
-            '<p class="error-message">Error al cargar planificaciones</p>';
+        const c = document.getElementById('planificaciones-table-container');
+        if (c) c.innerHTML = '<p class="error-message">Error al cargar planificaciones</p>';
     }
 }
 
@@ -204,15 +128,13 @@ async function loadProductos() {
         renderProductosTable();
         poblarSelectProductos();
     } catch (e) {
-        document.getElementById('productos-table-container').innerHTML =
-            '<p class="error-message">Error al cargar productos</p>';
+        const c = document.getElementById('productos-table-container');
+        if (c) c.innerHTML = '<p class="error-message">Error al cargar productos</p>';
     }
 }
 
 async function loadArticulos() {
-    try {
-        articulos = await ArticulosAPI.getAll();
-    } catch (e) { articulos = []; }
+    try { articulos = await ArticulosAPI.getAll(); } catch (e) { articulos = []; }
 }
 
 function poblarSelectProductos() {
@@ -229,6 +151,7 @@ function poblarSelectProductos() {
 
 function renderProductosTable() {
     const container = document.getElementById('productos-table-container');
+    if (!container) return;
     if (!productos.length) {
         container.innerHTML = '<p class="text-center">No hay productos con estructura cargada.</p>';
         return;
@@ -249,16 +172,13 @@ function renderProductosTable() {
 }
 
 async function verEstructura(productoId) {
-    currentProductoId = productoId;
     document.getElementById('producto-modal-body').innerHTML =
         '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
     document.getElementById('producto-modal').style.display = 'flex';
     try {
         const p = await ProductosAPI.getById(productoId);
         document.getElementById('producto-modal-titulo').textContent = `${p.codigo} — ${p.nombre}`;
-
-        let html = `<p style="color:#666; margin-bottom:12px">
-            Cantidades por <strong>1 unidad</strong> del producto (${p.total_materiales} insumos)</p>`;
+        let html = `<p style="color:#666; margin-bottom:12px">Cantidades por <strong>1 unidad</strong> (${p.total_materiales} insumos)</p>`;
         let seccionActual = null;
         html += '<div class="table-responsive"><table class="table"><thead><tr><th>Código</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Plano</th></tr></thead><tbody>';
         for (const m of p.materiales) {
@@ -266,24 +186,20 @@ async function verEstructura(productoId) {
                 seccionActual = m.seccion;
                 html += `<tr><td colspan="5" style="background:#f0f4f8; font-weight:bold">${seccionActual}</td></tr>`;
             }
-            html += `<tr>
-                <td>${m.codigo_interno}</td>
-                <td title="${m.observaciones || ''}">${m.articulo_nombre}</td>
-                <td><strong>${m.cantidad_por_unidad}</strong></td>
-                <td>${m.unidad_medida || '-'}</td>
-                <td style="font-size:0.8rem; color:#666">${m.plano || '-'}</td>
-            </tr>`;
+            html += `<tr><td>${m.codigo_interno}</td><td title="${m.observaciones || ''}">${m.articulo_nombre}</td>
+                <td><strong>${m.cantidad_por_unidad}</strong></td><td>${m.unidad_medida || '-'}</td>
+                <td style="font-size:0.8rem; color:#666">${m.plano || '-'}</td></tr>`;
         }
         html += '</tbody></table></div>';
         document.getElementById('producto-modal-body').innerHTML = html;
     } catch (e) {
-        document.getElementById('producto-modal-body').innerHTML =
-            '<p class="error-message">Error al cargar la estructura</p>';
+        document.getElementById('producto-modal-body').innerHTML = '<p class="error-message">Error al cargar la estructura</p>';
     }
 }
 
 function renderPlanificacionesTable() {
     const container = document.getElementById('planificaciones-table-container');
+    if (!container) return;
     if (planificaciones.length === 0) {
         container.innerHTML = '<p class="text-center">No hay planificaciones. Creá una eligiendo un producto y la cantidad a fabricar.</p>';
         return;
@@ -305,79 +221,176 @@ function renderPlanificacionesTable() {
                         <td>${formatDate(p.fecha_inicio)}</td>
                         <td>${formatDate(p.fecha_fin)}</td>
                         <td><span class="badge badge-${estado.class}">${estado.text}</span></td>
-                        <td><button class="btn btn-sm btn-primary"
-                                    onclick="window.planificacionModule.verNecesidades(${p.id})">🧮 Necesidades</button></td>
+                        <td style="display:flex; gap:6px; flex-wrap:wrap">
+                            <button class="btn btn-sm btn-primary"
+                                    onclick="window.planificacionModule.verNecesidades(${p.id})">🧮 Abrir</button>
+                            <button class="btn btn-sm btn-secondary" style="background:#c62828; color:#fff"
+                                    onclick="window.planificacionModule.eliminarPlanificacion(${p.id}, '${(p.nombre || '').replace(/'/g, '')}')">🗑 Eliminar</button>
+                        </td>
                     </tr>`;
                 }).join('')}
             </tbody>
         </table>`;
 }
 
+async function eliminarPlanificacion(planId, nombre) {
+    if (!confirm(`¿Eliminar la planificación "${nombre}"? Esta acción no se puede deshacer.`)) return;
+    try {
+        await API.delete(`/planificacion/${planId}`);
+        await loadPlanificaciones();
+    } catch (e) {
+        alert('Error al eliminar: ' + e.message);
+    }
+}
+
+// ---------- Vista NECESIDADES (hoja de trabajo a pantalla completa) ----------
 async function verNecesidades(planId) {
     currentPlanId = planId;
-    document.getElementById('plan-detalle-body').innerHTML =
-        '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
-    document.getElementById('plan-detalle-modal').style.display = 'flex';
+    const contentArea = document.getElementById('content-area');
+    contentArea.innerHTML = `
+        <div class="card">
+            <div class="card-header" style="flex-wrap:wrap; gap:8px">
+                <div style="display:flex; align-items:center; gap:12px">
+                    <button class="btn btn-secondary" onclick="window.planificacionModule.volver()">← Volver</button>
+                    <h2 class="card-title" id="nec-titulo" style="margin:0">Necesidades de Compra</h2>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap">
+                    <button class="btn btn-primary" onclick="window.planificacionModule.showCategoriasModal()">🔀 Generar Comparativa</button>
+                    <a id="plan-export-link" class="btn btn-secondary" href="#" download>📥 Exportar a Excel</a>
+                    <button class="btn btn-secondary" onclick="window.planificacionModule.showItemsModal()">+ Agregar Artículo</button>
+                </div>
+            </div>
+            <div id="nec-resumen" style="padding:12px 16px"></div>
+            <div class="card-body">
+                <input type="text" id="nec-buscador" placeholder="🔍 Buscar insumo por código o nombre..."
+                       style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:12px"
+                       oninput="window.planificacionModule.filtrarNecesidades(this.value)">
+                <div id="nec-tabla"><div class="flex-center" style="padding:30px"><div class="spinner"></div></div></div>
+            </div>
+        </div>
+
+        <!-- Modal selección de categorías para comparativa -->
+        <div id="comparativa-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">Generar Comparativa por Categorías</h3>
+                    <button class="modal-close" onclick="document.getElementById('comparativa-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="color:#666; font-size:0.9rem">
+                        Elegí las categorías/rubros para comparar. El sistema arma la competencia con
+                        esos insumos y trae los proveedores que los proveen.
+                    </p>
+                    <div class="form-group">
+                        <label for="comparativa-nombre">Nombre de la comparativa</label>
+                        <input type="text" id="comparativa-nombre" placeholder="(se genera automáticamente)">
+                    </div>
+                    <div id="comparativa-categorias" style="max-height:320px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:10px">
+                        <div class="flex-center"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('comparativa-modal').style.display='none'">Cancelar</button>
+                    <button class="btn btn-primary" onclick="window.planificacionModule.generarComparativa()">Generar Comparativa</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal agregar artículo suelto -->
+        <div id="items-modal" class="modal-overlay" style="display: none;">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">Agregar Artículo a Planificación</h3>
+                    <button class="modal-close" onclick="window.planificacionModule.closeItemsModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="items-form">
+                        <div class="form-group">
+                            <label for="articulo_id">Artículo *</label>
+                            <select id="articulo_id" name="articulo_id" required><option value="">Seleccione...</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cantidad_estimada">Cantidad *</label>
+                            <input type="number" id="cantidad_estimada" min="0.01" step="0.01" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="window.planificacionModule.closeItemsModal()">Cancelar</button>
+                    <button class="btn btn-primary" onclick="window.planificacionModule.addItem()">Agregar</button>
+                </div>
+            </div>
+        </div>
+    `;
     document.getElementById('plan-export-link').href =
         `${window.location.origin}/api/planificacion/${planId}/necesidades/export`;
+    if (!articulos.length) loadArticulos();
 
     try {
         const data = await API.get(`/planificacion/${planId}/necesidades`);
         const plan = data.planificacion;
         const res = data.resumen;
-        document.getElementById('plan-detalle-titulo').textContent = `Necesidades — ${plan.nombre}`;
-
-        const semaforos = { rojo: '🔴', amarillo: '🟡', verde: '🟢' };
-        const cabecera = `
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px">
+        necesidadesActuales = data.necesidades;
+        document.getElementById('nec-titulo').textContent = `Necesidades — ${plan.nombre}`;
+        document.getElementById('nec-resumen').innerHTML = `
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px">
                 <div><strong>Producto:</strong> ${plan.producto_nombre || 'Manual'}</div>
                 <div><strong>Unidades:</strong> ${plan.cantidad_unidades || '-'}</div>
                 <div>🔴🟡 <strong>A comprar:</strong> ${res.a_comprar}</div>
                 <div>🟢 <strong>Cubiertos por stock:</strong> ${res.cubiertos_por_stock}</div>
             </div>`;
-
-        const tabla = data.necesidades.length === 0
-            ? '<p class="text-muted">Sin ítems. Agregá artículos o creá la planificación desde un producto.</p>'
-            : `<div class="table-responsive"><table class="table">
-                <thead><tr>
-                    <th></th><th>Código</th><th>Artículo</th><th>Categoría</th><th>UM</th>
-                    <th>Requerido</th><th>Stock</th><th>A Comprar</th>
-                </tr></thead>
-                <tbody>
-                    ${data.necesidades.map(n => `<tr>
-                        <td>${semaforos[n.semaforo]}</td>
-                        <td>${n.codigo_interno}</td>
-                        <td>${n.nombre}</td>
-                        <td>${n.categoria || '-'}</td>
-                        <td>${n.unidad_medida || '-'}</td>
-                        <td>${n.cantidad_requerida}</td>
-                        <td>${n.stock_disponible}</td>
-                        <td><strong>${n.necesidad_neta > 0 ? n.necesidad_neta : '—'}</strong></td>
-                    </tr>`).join('')}
-                </tbody>
-               </table></div>`;
-
-        document.getElementById('plan-detalle-body').innerHTML = cabecera + tabla;
+        renderNecesidadesTabla('');
     } catch (e) {
-        document.getElementById('plan-detalle-body').innerHTML =
-            '<p class="error-message">Error al calcular las necesidades</p>';
+        document.getElementById('nec-tabla').innerHTML = '<p class="error-message">Error al calcular las necesidades</p>';
     }
 }
 
+function renderNecesidadesTabla(filtro) {
+    const cont = document.getElementById('nec-tabla');
+    if (!cont) return;
+    const f = (filtro || '').toLowerCase();
+    const items = f
+        ? necesidadesActuales.filter(n => `${n.codigo_interno} ${n.nombre} ${n.categoria || ''}`.toLowerCase().includes(f))
+        : necesidadesActuales;
+    if (!items.length) {
+        cont.innerHTML = '<p class="text-muted">Sin insumos para mostrar.</p>';
+        return;
+    }
+    const semaforos = { rojo: '🔴', amarillo: '🟡', verde: '🟢' };
+    cont.innerHTML = `<div class="table-responsive"><table class="table">
+        <thead><tr>
+            <th></th><th>Código</th><th>Artículo</th><th>Categoría</th><th>UM</th>
+            <th style="text-align:right">Requerido</th><th style="text-align:right">Stock</th><th style="text-align:right">A Comprar</th>
+        </tr></thead>
+        <tbody>${items.map(n => `<tr>
+            <td>${semaforos[n.semaforo]}</td>
+            <td>${n.codigo_interno}</td>
+            <td>${n.nombre}</td>
+            <td>${n.categoria || '-'}</td>
+            <td>${n.unidad_medida || '-'}</td>
+            <td style="text-align:right">${n.cantidad_requerida}</td>
+            <td style="text-align:right">${n.stock_disponible}</td>
+            <td style="text-align:right"><strong>${n.necesidad_neta > 0 ? n.necesidad_neta : '—'}</strong></td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function filtrarNecesidades(val) { renderNecesidadesTabla(val); }
+
+function volver() { showListaView(); }
+
+// ---------- Modales de acción ----------
 function showCreateModal() {
     document.getElementById('planificacion-form').reset();
     document.getElementById('plan-cantidad').value = 1;
     poblarSelectProductos();
     document.getElementById('planificacion-modal').style.display = 'flex';
 }
-
-function closeModal() {
-    document.getElementById('planificacion-modal').style.display = 'none';
-}
+function closeModal() { document.getElementById('planificacion-modal').style.display = 'none'; }
 
 function showItemsModal() {
     const select = document.getElementById('articulo_id');
-    select.innerHTML = '<option value="">Seleccione un artículo...</option>';
+    select.innerHTML = '<option value="">Seleccione...</option>';
     articulos.forEach(art => {
         const opt = document.createElement('option');
         opt.value = art.id;
@@ -387,10 +400,7 @@ function showItemsModal() {
     document.getElementById('items-form').reset();
     document.getElementById('items-modal').style.display = 'flex';
 }
-
-function closeItemsModal() {
-    document.getElementById('items-modal').style.display = 'none';
-}
+function closeItemsModal() { document.getElementById('items-modal').style.display = 'none'; }
 
 async function savePlanificacion() {
     const productoId = document.getElementById('plan-producto').value || null;
@@ -406,11 +416,11 @@ async function savePlanificacion() {
     try {
         const r = await API.post('/planificacion', data);
         closeModal();
-        await loadPlanificaciones();
         if (r.items_generados) {
             alert(`Planificación creada: ${r.items_generados} insumos calculados automáticamente`);
             verNecesidades(r.id);
         } else {
+            await loadPlanificaciones();
             alert('Planificación creada');
         }
     } catch (e) {
@@ -439,25 +449,19 @@ async function showCategoriasModal() {
     const cont = document.getElementById('comparativa-categorias');
     cont.innerHTML = '<div class="flex-center"><div class="spinner"></div></div>';
     document.getElementById('comparativa-modal').style.display = 'flex';
-
     try {
         const cats = await API.get(`/planificacion/${currentPlanId}/categorias`);
-        if (!cats.length) {
-            cont.innerHTML = '<p class="text-muted">La planificación no tiene ítems.</p>';
-            return;
-        }
+        if (!cats.length) { cont.innerHTML = '<p class="text-muted">La planificación no tiene ítems.</p>'; return; }
         cont.innerHTML = `
             <label style="display:block; margin-bottom:8px; font-weight:600">
                 <input type="checkbox" id="cat-todas" onchange="window.planificacionModule.toggleTodasCategorias(this)"> Seleccionar todas
-            </label>
-            <hr style="margin:8px 0">
+            </label><hr style="margin:8px 0">
             ${cats.map(c => `
                 <label style="display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer">
                     <input type="checkbox" class="cat-check" value="${c.subcategoria_id || ''}">
                     <span style="flex:1">${c.categoria || 'Sin categoría'}</span>
                     <span style="color:#666; font-size:0.8rem">${c.articulos} insumos · ${c.proveedores} prov.</span>
-                </label>
-            `).join('')}`;
+                </label>`).join('')}`;
     } catch (e) {
         cont.innerHTML = '<p class="error-message">Error al cargar las categorías</p>';
     }
@@ -468,21 +472,18 @@ function toggleTodasCategorias(master) {
 }
 
 async function generarComparativa() {
-    const ids = Array.from(document.querySelectorAll('.cat-check:checked'))
-        .map(cb => cb.value).filter(v => v);
+    const ids = Array.from(document.querySelectorAll('.cat-check:checked')).map(cb => cb.value).filter(v => v);
     if (!ids.length) { alert('Elegí al menos una categoría'); return; }
-
     try {
         const r = await API.post(`/planificacion/${currentPlanId}/generar-competencia`, {
             subcategoria_ids: ids.map(Number),
             nombre: document.getElementById('comparativa-nombre').value || null,
         });
         document.getElementById('comparativa-modal').style.display = 'none';
-        document.getElementById('plan-detalle-modal').style.display = 'none';
         alert(`Comparativa generada: ${r.items} insumos y ${r.proveedores} proveedores.\n` +
               (r.proveedores === 0
                 ? 'Nota: todavía no hay listas de precios cargadas, así que no se vincularon proveedores.'
-                : 'Andá al módulo Competencia para ver la comparación de precios.'));
+                : 'Andá al módulo Competencia para trabajar la comparación de precios.'));
     } catch (e) {
         alert('Error al generar la comparativa: ' + e.message);
     }
@@ -504,15 +505,9 @@ function formatDate(d) {
 }
 
 window.planificacionModule = {
-    showCreateModal,
-    closeModal,
-    savePlanificacion,
-    showItemsModal,
-    closeItemsModal,
-    addItem,
-    verNecesidades,
-    verEstructura,
-    showCategoriasModal,
-    toggleTodasCategorias,
-    generarComparativa,
+    showCreateModal, closeModal, savePlanificacion,
+    showItemsModal, closeItemsModal, addItem,
+    verNecesidades, verEstructura, volver,
+    eliminarPlanificacion, filtrarNecesidades,
+    showCategoriasModal, toggleTodasCategorias, generarComparativa,
 };
