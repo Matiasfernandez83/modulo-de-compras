@@ -144,7 +144,8 @@ export const CompetenciaAPI = {
     getAll: () => API.get('/competencia'),
     getById: (id) => API.get(`/competencia/${id}`),
     create: (data) => API.post('/competencia', data),
-    confirmar: (id) => API.put(`/competencia/${id}/confirmar`, {})
+    confirmar: (id) => API.put(`/competencia/${id}/confirmar`, {}),
+    getMatriz: (id) => API.get(`/competencia/${id}/matriz`)
 };
 
 export const OrdenesCompraAPI = {

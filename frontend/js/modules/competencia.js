@@ -278,7 +278,7 @@ function renderTabContent(tab, competencia) {
             container.innerHTML = renderArticulosTab(competencia);
             break;
         case 'comparacion':
-            container.innerHTML = renderComparacionTab(competencia);
+            renderComparacionTab(competencia);
             break;
         case 'condiciones':
             container.innerHTML = renderCondicionesTab(competencia);
@@ -398,14 +398,71 @@ function renderArticulosTab(competencia) {
     `;
 }
 
-function renderComparacionTab(competencia) {
-    return `
+async function renderComparacionTab(competencia) {
+    const container = document.getElementById('competencia-tabs-content');
+    container.innerHTML = '<div class="flex-center" style="padding:30px"><div class="spinner"></div></div>';
+
+    let data;
+    try {
+        data = await CompetenciaAPI.getMatriz(competencia.id);
+    } catch (e) {
+        container.innerHTML = '<p class="error-message">Error al cargar la comparación</p>';
+        return;
+    }
+
+    if (!data.proveedores.length) {
+        container.innerHTML = `<div class="tab-content-section">
+            <h4>Comparación de Precios</h4>
+            <p class="text-muted">Esta comparativa no tiene proveedores vinculados. Se vinculan
+            automáticamente los que tengan listas de precios con estos insumos.</p></div>`;
+        return;
+    }
+
+    const money = v => v == null ? '—' : '$' + Number(v).toLocaleString('es-AR', {minimumFractionDigits: 2});
+
+    // Fila de totales por proveedor (precio × cantidad a comprar)
+    const totales = {};
+    data.proveedores.forEach(p => { totales[p.proveedor_id] = 0; });
+
+    const filas = data.items.map(it => {
+        const celdas = data.proveedores.map(p => {
+            const precio = it.precios[p.proveedor_id];
+            const esMejor = p.proveedor_id === it.mejor_proveedor_id;
+            if (precio != null) totales[p.proveedor_id] += precio * (it.compra_sugerida || it.cantidad_necesaria || 0);
+            return `<td style="text-align:right; ${esMejor ? 'background:#e8f5e9; font-weight:bold; color:#2e7d32' : ''}">
+                ${money(precio)}${esMejor ? ' ✓' : ''}</td>`;
+        }).join('');
+        return `<tr>
+            <td>${it.codigo_interno}</td>
+            <td>${it.nombre}</td>
+            <td style="text-align:right">${it.compra_sugerida ?? it.cantidad_necesaria ?? '-'}</td>
+            ${celdas}
+        </tr>`;
+    }).join('');
+
+    const filaTotales = data.proveedores.map(p =>
+        `<td style="text-align:right; font-weight:bold">${money(totales[p.proveedor_id])}</td>`).join('');
+
+    container.innerHTML = `
         <div class="tab-content-section">
-            <h4>Comparación de Precios con Semáforos</h4>
-            <p class="text-muted">Sistema de semáforos: <span class="badge badge-success">Verde = Mejor precio</span> <span class="badge badge-warning">Amarillo = Precio intermedio</span> <span class="badge badge-danger">Rojo = Precio alto</span></p>
-            <p class="text-muted">Nota: Esta funcionalidad requiere datos de precios por proveedor. Actualmente en desarrollo.</p>
-        </div>
-    `;
+            <h4>Comparación de Precios por Proveedor</h4>
+            <p class="text-muted">Celda verde ✓ = mejor precio del insumo. El total estima
+            precio × cantidad a comprar.</p>
+            ${data.sin_precios ? '<p class="text-muted">⚠️ Los proveedores están vinculados pero todavía no hay precios cargados en sus listas para estos insumos.</p>' : ''}
+            <div class="table-responsive">
+                <table class="table">
+                    <thead><tr>
+                        <th>Código</th><th>Insumo</th><th>Cant.</th>
+                        ${data.proveedores.map(p => `<th style="text-align:right">${p.nombre}</th>`).join('')}
+                    </tr></thead>
+                    <tbody>${filas}</tbody>
+                    <tfoot><tr style="border-top:2px solid #1F4E79">
+                        <td colspan="3" style="font-weight:bold">TOTAL ESTIMADO</td>
+                        ${filaTotales}
+                    </tr></tfoot>
+                </table>
+            </div>
+        </div>`;
 }
 
 function renderCondicionesTab(competencia) {

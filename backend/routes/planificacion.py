@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, send_file
-from middleware.session_auth import login_required, get_current_user_id
+from middleware.session_auth import login_required, get_current_user_id, require_permission
 import sqlite3
 import os
 import io
@@ -172,6 +172,130 @@ def get_necesidades(plan_id):
         'resumen': {'total_articulos': total, 'a_comprar': a_comprar,
                     'cubiertos_por_stock': total - a_comprar}
     }), 200
+
+
+@planificacion_bp.route('/<int:plan_id>/categorias', methods=['GET'])
+@login_required
+def get_categorias_plan(plan_id):
+    """Categorías/rubros presentes en los ítems de la planificación.
+
+    Para cada categoría informa cuántos artículos hay y cuántos proveedores
+    la proveen (según listas de precios y mapeo de códigos), para que el
+    usuario elija por qué categorías armar la comparativa.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if not cursor.execute("SELECT 1 FROM planificaciones WHERE id = ?", (plan_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Planificación no encontrada'}), 404
+
+    cursor.execute("""
+        SELECT s.id as subcategoria_id, s.nombre as categoria,
+               COUNT(DISTINCT pi.articulo_id) as articulos,
+               COUNT(DISTINCT prov.proveedor_id) as proveedores
+        FROM planificacion_items pi
+        JOIN articulos a ON pi.articulo_id = a.id
+        LEFT JOIN subcategorias s ON a.subcategoria_id = s.id
+        LEFT JOIN (
+            SELECT lpi.articulo_id, lp.proveedor_id
+            FROM lista_precios_items lpi
+            JOIN listas_precios lp ON lpi.lista_precio_id = lp.id AND lp.activo = 1
+            UNION
+            SELECT articulo_id, proveedor_id FROM mapeo_codigos_proveedor
+        ) prov ON prov.articulo_id = pi.articulo_id
+        WHERE pi.planificacion_id = ?
+        GROUP BY s.id, s.nombre
+        ORDER BY s.nombre
+    """, (plan_id,))
+    categorias = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(categorias), 200
+
+
+@planificacion_bp.route('/<int:plan_id>/generar-competencia', methods=['POST'])
+@require_permission('competencia', 'crear')
+def generar_competencia(plan_id):
+    """Generar una comparativa (competencia) desde la planificación.
+
+    Toma los ítems de la planificación de las categorías elegidas, crea la
+    competencia vinculada a la planificación, carga sus ítems con la cantidad
+    necesaria y auto-vincula los proveedores que proveen esos insumos.
+    """
+    data = request.get_json() or {}
+    subcategoria_ids = data.get('subcategoria_ids') or []
+    if not subcategoria_ids:
+        return jsonify({'error': 'Elegí al menos una categoría'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    plan = cursor.execute("SELECT * FROM planificaciones WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({'error': 'Planificación no encontrada'}), 404
+
+    placeholders = ','.join('?' * len(subcategoria_ids))
+    # Ítems de la planificación en esas categorías, agrupados por artículo
+    cursor.execute(f"""
+        SELECT pi.articulo_id, SUM(pi.cantidad_requerida) as cantidad,
+               COALESCE(st.cantidad, 0) as stock
+        FROM planificacion_items pi
+        JOIN articulos a ON pi.articulo_id = a.id
+        LEFT JOIN stock st ON st.articulo_id = a.id
+        WHERE pi.planificacion_id = ? AND a.subcategoria_id IN ({placeholders})
+        GROUP BY pi.articulo_id
+    """, (plan_id, *subcategoria_ids))
+    items = cursor.fetchall()
+    if not items:
+        conn.close()
+        return jsonify({'error': 'No hay artículos en las categorías elegidas'}), 400
+
+    articulo_ids = [it['articulo_id'] for it in items]
+    art_ph = ','.join('?' * len(articulo_ids))
+
+    # Proveedores que proveen alguno de esos artículos (listas de precios o mapeo)
+    cursor.execute(f"""
+        SELECT DISTINCT proveedor_id FROM (
+            SELECT lp.proveedor_id
+            FROM lista_precios_items lpi
+            JOIN listas_precios lp ON lpi.lista_precio_id = lp.id AND lp.activo = 1
+            WHERE lpi.articulo_id IN ({art_ph})
+            UNION
+            SELECT proveedor_id FROM mapeo_codigos_proveedor WHERE articulo_id IN ({art_ph})
+        )
+    """, (*articulo_ids, *articulo_ids))
+    proveedor_ids = [row['proveedor_id'] for row in cursor.fetchall()]
+
+    nombre = data.get('nombre') or f"Comparativa - {plan['nombre']}"
+    cursor.execute("""
+        INSERT INTO competencias (nombre, planificacion_id, origen, estado, usuario_creacion_id)
+        VALUES (?, ?, 'planificacion', 'borrador', ?)
+    """, (nombre, plan_id, get_current_user_id()))
+    competencia_id = cursor.lastrowid
+
+    for it in items:
+        neta = max(0, (it['cantidad'] or 0) - (it['stock'] or 0))
+        cursor.execute("""
+            INSERT INTO competencia_items
+                (competencia_id, articulo_id, cantidad_necesaria, necesidad, stock_disponible, compra_sugerida)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (competencia_id, it['articulo_id'], it['cantidad'], it['cantidad'], it['stock'], neta))
+
+    for prov_id in proveedor_ids:
+        cursor.execute("""
+            INSERT INTO competencia_proveedores (competencia_id, proveedor_id) VALUES (?, ?)
+        """, (competencia_id, prov_id))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'competencia_id': competencia_id,
+        'items': len(items),
+        'proveedores': len(proveedor_ids),
+        'message': 'Comparativa generada desde la planificación'
+    }), 201
 
 
 @planificacion_bp.route('/<int:plan_id>/necesidades/export', methods=['GET'])
