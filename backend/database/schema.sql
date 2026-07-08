@@ -276,6 +276,22 @@ CREATE TABLE IF NOT EXISTS competencia_items (
     FOREIGN KEY (proveedor_seleccionado_id) REFERENCES proveedores(id)
 );
 
+-- Ofertas de la comparativa: cuánto se le compra a cada proveedor de cada insumo,
+-- con el precio unitario (se autocompleta de la lista de precios y es editable)
+CREATE TABLE IF NOT EXISTS competencia_ofertas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    competencia_id INTEGER NOT NULL,
+    articulo_id INTEGER NOT NULL,
+    proveedor_id INTEGER NOT NULL,
+    cantidad REAL DEFAULT 0,
+    precio_unitario REAL,
+    FOREIGN KEY (competencia_id) REFERENCES competencias(id),
+    FOREIGN KEY (articulo_id) REFERENCES articulos(id),
+    FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
+    UNIQUE(competencia_id, articulo_id, proveedor_id)
+);
+CREATE INDEX IF NOT EXISTS idx_competencia_ofertas ON competencia_ofertas(competencia_id);
+
 -- Tabla de Comprobantes (OC, Facturas, Recepciones, etc)
 CREATE TABLE IF NOT EXISTS comprobantes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -145,7 +145,8 @@ export const CompetenciaAPI = {
     getById: (id) => API.get(`/competencia/${id}`),
     create: (data) => API.post('/competencia', data),
     confirmar: (id) => API.put(`/competencia/${id}/confirmar`, {}),
-    getMatriz: (id) => API.get(`/competencia/${id}/matriz`)
+    getMatriz: (id) => API.get(`/competencia/${id}/matriz`),
+    saveMatriz: (id, data) => API.put(`/competencia/${id}/matriz`, data)
 };
 
 export const OrdenesCompraAPI = {

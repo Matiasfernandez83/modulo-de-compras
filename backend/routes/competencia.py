@@ -198,28 +198,88 @@ def get_matriz_comparacion(id):
             # ASC + sobreescritura deja el precio de la lista más reciente
             precios[(row['articulo_id'], row['proveedor_id'])] = row['precio_neto']
 
+    # Cantidades y precios ya cargados en la comparativa (ofertas guardadas)
+    ofertas = {}  # (articulo_id, proveedor_id) -> {cantidad, precio_unitario}
+    for row in cursor.execute("""
+        SELECT articulo_id, proveedor_id, cantidad, precio_unitario
+        FROM competencia_ofertas WHERE competencia_id = ?
+    """, (id,)).fetchall():
+        ofertas[(row['articulo_id'], row['proveedor_id'])] = {
+            'cantidad': row['cantidad'], 'precio_unitario': row['precio_unitario']
+        }
+
     items = []
     for it in items_raw:
         fila = dict(it)
-        fila_precios = {}
+        celdas = {}
         validos = []
         for p in proveedores:
-            precio = precios.get((it['articulo_id'], p['proveedor_id']))
-            fila_precios[p['proveedor_id']] = precio
+            pid = p['proveedor_id']
+            oferta = ofertas.get((it['articulo_id'], pid))
+            # El precio guardado en la oferta manda; si no hay, el de la lista de precios
+            precio = (oferta['precio_unitario'] if oferta and oferta['precio_unitario'] is not None
+                      else precios.get((it['articulo_id'], pid)))
+            celdas[pid] = {
+                'precio': precio,
+                'cantidad': oferta['cantidad'] if oferta else 0,
+            }
             if precio is not None:
-                validos.append((p['proveedor_id'], precio))
+                validos.append((pid, precio))
         mejor = min(validos, key=lambda x: x[1])[0] if validos else None
-        fila['precios'] = fila_precios
+        fila['celdas'] = celdas
         fila['mejor_proveedor_id'] = mejor
         items.append(fila)
 
     conn.close()
+    hay_precios = any(any(c['precio'] is not None for c in it['celdas'].values()) for it in items)
     return jsonify({
         'competencia': dict(comp),
         'proveedores': proveedores,
         'items': items,
-        'sin_precios': not any(any(v is not None for v in it['precios'].values()) for it in items)
+        'sin_precios': not hay_precios
     }), 200
+
+
+@competencia_bp.route('/<int:id>/matriz', methods=['PUT'])
+@require_permission('competencia', 'editar')
+def guardar_matriz(id):
+    """Guardar la matriz editada: cantidad requerida por insumo y
+    cantidad/precio asignados a cada proveedor.
+    """
+    data = request.get_json() or {}
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if not cursor.execute("SELECT 1 FROM competencias WHERE id = ?", (id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Competencia no encontrada'}), 404
+
+    # Actualizar cantidades requeridas de los ítems
+    for it in data.get('items', []):
+        if it.get('articulo_id') is not None and it.get('cantidad_necesaria') is not None:
+            cursor.execute("""
+                UPDATE competencia_items SET cantidad_necesaria = ?
+                WHERE competencia_id = ? AND articulo_id = ?
+            """, (it['cantidad_necesaria'], id, it['articulo_id']))
+
+    # Upsert de ofertas (cantidad y precio por proveedor)
+    for of in data.get('ofertas', []):
+        art = of.get('articulo_id')
+        prov = of.get('proveedor_id')
+        if art is None or prov is None:
+            continue
+        cantidad = of.get('cantidad') or 0
+        precio = of.get('precio_unitario')
+        cursor.execute("""
+            INSERT INTO competencia_ofertas (competencia_id, articulo_id, proveedor_id, cantidad, precio_unitario)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(competencia_id, articulo_id, proveedor_id)
+            DO UPDATE SET cantidad = excluded.cantidad, precio_unitario = excluded.precio_unitario
+        """, (id, art, prov, cantidad, precio))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Comparativa guardada'}), 200
 
 
 @competencia_bp.route('/<int:id>/confirmar', methods=['PUT'])

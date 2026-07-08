@@ -3,6 +3,7 @@ import { CompetenciaAPI, ProveedoresAPI, API } from '../api.js';
 
 let competencias = [];
 let currentCompetenciaId = null;
+let matrizData = null;
 
 export async function initCompetencia() {
     renderCompetenciaView();
@@ -387,7 +388,7 @@ function renderArticulosTab(competencia) {
                                 <tr>
                                     <td>${item.codigo_interno}</td>
                                     <td>${item.articulo_nombre}</td>
-                                    <td>${item.cantidad || '-'}</td>
+                                    <td>${item.cantidad_necesaria ?? '-'}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -418,51 +419,146 @@ async function renderComparacionTab(competencia) {
         return;
     }
 
-    const money = v => v == null ? '—' : '$' + Number(v).toLocaleString('es-AR', {minimumFractionDigits: 2});
+    // Guardar la matriz en memoria para editar y persistir
+    matrizData = data;
 
-    // Fila de totales por proveedor (precio × cantidad a comprar)
-    const totales = {};
-    data.proveedores.forEach(p => { totales[p.proveedor_id] = 0; });
+    if (!data.proveedores.length) {
+        container.innerHTML = `<div class="tab-content-section">
+            <h4>Comparación de Precios</h4>
+            <p class="text-muted">Esta comparativa no tiene proveedores vinculados.</p></div>`;
+        return;
+    }
 
-    const filas = data.items.map(it => {
+    container.innerHTML = `
+        <div class="tab-content-section">
+            <h4>Comparación de Precios por Proveedor</h4>
+            <p class="text-muted">
+                <strong>Cantidad req.</strong> viene de la planificación (editable).
+                En cada celda de proveedor cargá <strong>cuánto comprarle</strong> de ese insumo;
+                el precio se autocompleta de su lista (editable). Celda verde ✓ = mejor precio.
+            </p>
+            ${data.sin_precios ? '<p class="text-muted" style="color:#F9A825">⚠️ Todavía no hay precios en las listas de estos proveedores; podés cargarlos a mano en la matriz.</p>' : ''}
+            <div style="margin-bottom:10px">
+                <button class="btn btn-primary btn-sm" onclick="window.competenciaModule.guardarMatriz()">💾 Guardar comparativa</button>
+            </div>
+            <div class="table-responsive" id="matriz-container">${renderMatrizTabla()}</div>
+        </div>`;
+    recomputeTotales();
+}
+
+function renderMatrizTabla() {
+    const data = matrizData;
+
+    const filas = data.items.map((it, i) => {
         const celdas = data.proveedores.map(p => {
-            const precio = it.precios[p.proveedor_id];
+            const c = it.celdas[p.proveedor_id] || (it.celdas[p.proveedor_id] = { precio: null, cantidad: 0 });
             const esMejor = p.proveedor_id === it.mejor_proveedor_id;
-            if (precio != null) totales[p.proveedor_id] += precio * (it.compra_sugerida || it.cantidad_necesaria || 0);
-            return `<td style="text-align:right; ${esMejor ? 'background:#e8f5e9; font-weight:bold; color:#2e7d32' : ''}">
-                ${money(precio)}${esMejor ? ' ✓' : ''}</td>`;
+            return `<td style="${esMejor ? 'background:#e8f5e9' : ''}; padding:2px; white-space:nowrap">
+                <input type="number" min="0" step="0.01" value="${c.cantidad || ''}" placeholder="cant."
+                       style="width:68px; text-align:right" title="Cantidad a comprar a este proveedor"
+                       oninput="window.competenciaModule.editCelda(${i},${p.proveedor_id},'cantidad',this.value)">
+                <input type="number" min="0" step="0.01" value="${c.precio ?? ''}" placeholder="precio"
+                       style="width:78px; text-align:right; ${esMejor ? 'color:#2e7d32;font-weight:bold' : ''}" title="Precio unitario"
+                       oninput="window.competenciaModule.editCelda(${i},${p.proveedor_id},'precio',this.value)">
+                ${esMejor ? '✓' : ''}
+            </td>`;
         }).join('');
         return `<tr>
             <td>${it.codigo_interno}</td>
-            <td>${it.nombre}</td>
-            <td style="text-align:right">${it.compra_sugerida ?? it.cantidad_necesaria ?? '-'}</td>
+            <td style="min-width:180px">${it.nombre}</td>
+            <td style="padding:2px">
+                <input type="number" min="0" step="0.01" value="${it.cantidad_necesaria ?? ''}"
+                       style="width:75px; text-align:right; font-weight:bold"
+                       oninput="window.competenciaModule.editReq(${i},this.value)">
+            </td>
+            <td id="asig-${i}" style="text-align:right" title="Total asignado a proveedores"></td>
             ${celdas}
         </tr>`;
     }).join('');
 
     const filaTotales = data.proveedores.map(p =>
-        `<td style="text-align:right; font-weight:bold">${money(totales[p.proveedor_id])}</td>`).join('');
+        `<td id="tot-${p.proveedor_id}" style="text-align:right; font-weight:bold"></td>`).join('');
 
-    container.innerHTML = `
-        <div class="tab-content-section">
-            <h4>Comparación de Precios por Proveedor</h4>
-            <p class="text-muted">Celda verde ✓ = mejor precio del insumo. El total estima
-            precio × cantidad a comprar.</p>
-            ${data.sin_precios ? '<p class="text-muted">⚠️ Los proveedores están vinculados pero todavía no hay precios cargados en sus listas para estos insumos.</p>' : ''}
-            <div class="table-responsive">
-                <table class="table">
-                    <thead><tr>
-                        <th>Código</th><th>Insumo</th><th>Cant.</th>
-                        ${data.proveedores.map(p => `<th style="text-align:right">${p.nombre}</th>`).join('')}
-                    </tr></thead>
-                    <tbody>${filas}</tbody>
-                    <tfoot><tr style="border-top:2px solid #1F4E79">
-                        <td colspan="3" style="font-weight:bold">TOTAL ESTIMADO</td>
-                        ${filaTotales}
-                    </tr></tfoot>
-                </table>
-            </div>
-        </div>`;
+    return `<table class="table">
+        <thead><tr>
+            <th>Código</th><th>Insumo</th><th>Cant. req.</th><th>Asignado</th>
+            ${data.proveedores.map(p => `<th style="text-align:center">${p.nombre}</th>`).join('')}
+        </tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr style="border-top:2px solid #1F4E79">
+            <td colspan="4" style="font-weight:bold">TOTAL POR PROVEEDOR</td>
+            ${filaTotales}
+        </tr></tfoot>
+    </table>`;
+}
+
+// Recalcula "asignado" por fila y totales por proveedor SIN recrear los inputs
+// (así no se pierde el foco mientras se tipea).
+function recomputeTotales() {
+    const data = matrizData;
+    const money = v => '$' + Number(v).toLocaleString('es-AR', {minimumFractionDigits: 2});
+    const totales = {};
+    data.proveedores.forEach(p => { totales[p.proveedor_id] = 0; });
+
+    data.items.forEach((it, i) => {
+        let asignado = 0;
+        data.proveedores.forEach(p => {
+            const c = it.celdas[p.proveedor_id];
+            if (c) {
+                asignado += Number(c.cantidad) || 0;
+                totales[p.proveedor_id] += (Number(c.precio) || 0) * (Number(c.cantidad) || 0);
+            }
+        });
+        const cel = document.getElementById(`asig-${i}`);
+        if (cel) {
+            const completo = asignado >= (Number(it.cantidad_necesaria) || 0) && asignado > 0;
+            cel.textContent = asignado.toLocaleString('es-AR');
+            cel.style.color = completo ? '#2e7d32' : '#c62828';
+        }
+    });
+    data.proveedores.forEach(p => {
+        const cel = document.getElementById(`tot-${p.proveedor_id}`);
+        if (cel) cel.textContent = money(totales[p.proveedor_id]);
+    });
+}
+
+function editReq(i, val) {
+    matrizData.items[i].cantidad_necesaria = val === '' ? null : Number(val);
+    recomputeTotales();
+}
+
+function editCelda(i, provId, campo, val) {
+    const cel = matrizData.items[i].celdas[provId] || (matrizData.items[i].celdas[provId] = { precio: null, cantidad: 0 });
+    cel[campo] = val === '' ? (campo === 'cantidad' ? 0 : null) : Number(val);
+    recomputeTotales();
+}
+
+async function guardarMatriz() {
+    if (!matrizData) return;
+    const items = matrizData.items.map(it => ({
+        articulo_id: it.articulo_id,
+        cantidad_necesaria: it.cantidad_necesaria,
+    }));
+    const ofertas = [];
+    matrizData.items.forEach(it => {
+        matrizData.proveedores.forEach(p => {
+            const c = it.celdas[p.proveedor_id];
+            if (c && (c.cantidad || c.precio != null)) {
+                ofertas.push({
+                    articulo_id: it.articulo_id,
+                    proveedor_id: p.proveedor_id,
+                    cantidad: c.cantidad || 0,
+                    precio_unitario: c.precio,
+                });
+            }
+        });
+    });
+    try {
+        await CompetenciaAPI.saveMatriz(matrizData.competencia.id, { items, ofertas });
+        alert('Comparativa guardada correctamente');
+    } catch (e) {
+        alert('Error al guardar: ' + e.message);
+    }
 }
 
 function renderCondicionesTab(competencia) {
@@ -656,7 +752,10 @@ window.competenciaModule = {
     closeDetailModal,
     confirmarCompetencia,
     exportCompetencia,
-    generarOrdenCompra
+    generarOrdenCompra,
+    editReq,
+    editCelda,
+    guardarMatriz
 };
 
 
