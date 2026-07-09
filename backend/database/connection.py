@@ -157,7 +157,9 @@ class _PgConnection:
 
 def _connect_postgres():
     import psycopg
-    real = psycopg.connect(DATABASE_URL, autocommit=False)
+    # prepare_threshold=None desactiva prepared statements: necesario para que
+    # funcione con el pooler de Supabase (Supavisor) en modo transacción.
+    real = psycopg.connect(DATABASE_URL, autocommit=False, prepare_threshold=None)
     return _PgConnection(real)
 
 
